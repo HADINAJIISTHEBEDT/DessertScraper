@@ -1,0 +1,25 @@
+DEPLOY TO CLOUD (Runs 24/7 without your laptop)
+
+Option 1: Render.com (FREE)
+1. Go to https://render.com
+2. Sign up with GitHub
+3. Create new Web Service
+4. Connect your GitHub repo
+5. Deploy - it runs forever for free
+
+Option 2: Railway.app (FREE)
+1. Go to https://railway.app
+2. Sign up
+3. Deploy from GitHub
+4. Free tier available
+
+Option 3: Heroku (Paid)
+1. Go to https://heroku.com
+2. Create app
+3. Deploy from GitHub
+4. Requires paid plan for 24/7
+
+Your app will have a URL like:
+https://dessert-cafe-manager.onrender.com
+
+Anyone can access it anytime, even when your laptop is OFF.

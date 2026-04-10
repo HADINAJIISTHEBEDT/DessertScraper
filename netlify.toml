@@ -1,0 +1,55 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["node_modules/**"]
+  directory = "netlify/functions"
+
+[functions."api"]
+  memory = 1024
+  maxDuration = 26
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+
+# API redirects
+[[redirects]]
+  from = "/api/compare"
+  to = "/.netlify/functions/api/compare"
+  status = 200
+  method = "POST,OPTIONS"
+
+[[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/api/search"
+  status = 200
+  method = "POST,OPTIONS"
+
+[[redirects]]
+  from = "/api/search-all"
+  to = "/.netlify/functions/api/search-all"
+  status = 200
+  method = "POST,OPTIONS"
+
+[[redirects]]
+  from = "/compare"
+  to = "/.netlify/functions/api/compare"
+  status = 200
+  method = "POST,OPTIONS"
+
+[[redirects]]
+  from = "/search"
+  to = "/.netlify/functions/api/search"
+  status = 200
+  method = "POST,OPTIONS"
+
+[[redirects]]
+  from = "/search-all"
+  to = "/.netlify/functions/api/search-all"
+  status = 200
+  method = "POST,OPTIONS"

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: dessert-cafe-manager
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server-simple.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 18
