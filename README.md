@@ -2,6 +2,12 @@
 
 A web app to manage dessert timers and compare ingredient prices from Şok and Carrefour markets.
 
+## Download Desktop App
+
+[Download Dessert Cafe Manager (Windows)](https://drive.google.com/file/d/1wQEgO-Nvfk-yPdBRFNFuE7LRIDEPlxea/view?usp=drive_link)
+
+Double-click the downloaded file to run the application.
+
 ## Features
 - Timer management for dessert expiration
 - Price comparison across Şok and Carrefour
