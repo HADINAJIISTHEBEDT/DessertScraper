@@ -1,3 +1,5 @@
+const https = require("https");
+
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
 
 async function scrapeWithApi(url) {
@@ -8,14 +10,26 @@ async function scrapeWithApi(url) {
 
   const apiUrl = `http://api.scraperapi.com?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&render=true&country_code=tr`;
 
-  try {
-    const response = await fetch(apiUrl, { timeout: 30000 });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  } catch (err) {
-    console.error("ScraperAPI error:", err.message);
-    return null;
-  }
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      apiUrl.replace("http:", "https:"),
+      { timeout: 30000 },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve(data));
+      },
+    );
+    req.on("error", (err) => {
+      console.error("ScraperAPI error:", err.message);
+      resolve(null);
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      console.error("ScraperAPI timeout");
+      resolve(null);
+    });
+  });
 }
 
 function parsePrice(text) {
