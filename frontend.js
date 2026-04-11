@@ -3,7 +3,9 @@
 // Works on Netlify with serverless functions
 // ============================================================
 
-const PORTS_TO_TRY = [5050, 5051, 5052, 5053, 8080, 3000];
+const PORTS_TO_TRY = [
+  15050, 15051, 15052, 15053, 18080, 13000, 5050, 5051, 5052, 5053, 8080, 3000,
+];
 let SCRAPER_API_BASE = null;
 const AUTO_EMAIL = "5000";
 const AUTO_PASSWORD = "5000";
@@ -412,6 +414,39 @@ async function detectServerPort() {
     console.log(`Using Netlify API: ${SCRAPER_API_BASE}`);
     serverFound = true;
     return true;
+  }
+
+  // Network IP access (from phone or other devices on same network)
+  const isNetworkIP =
+    hostname !== "localhost" &&
+    hostname !== "127.0.0.1" &&
+    !hostname.includes("netlify");
+  if (isNetworkIP) {
+    // Try current origin first (same host, same port)
+    try {
+      const res = await fetch(`${window.location.origin}/health`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        SCRAPER_API_BASE = window.location.origin;
+        serverFound = true;
+        return true;
+      }
+    } catch (_) {}
+
+    // Try all ports on the same host
+    for (const port of PORTS_TO_TRY) {
+      try {
+        const res = await fetch(`http://${hostname}:${port}/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          SCRAPER_API_BASE = `http://${hostname}:${port}`;
+          serverFound = true;
+          return true;
+        }
+      } catch (_) {}
+    }
   }
 
   // Localhost - try to find server
