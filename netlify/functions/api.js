@@ -2,127 +2,123 @@ const https = require("https");
 
 const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
 
+// Simple HTML parser
+function parseHtml(html) {
+  const results = [];
+
+  // Look for JSON-LD structured data (most e-commerce sites have this)
+  const jsonLdMatches = html.match(
+    /<script type="application\/ld\+json">([^<]+)<\/script>/g,
+  );
+  if (jsonLdMatches) {
+    for (const match of jsonLdMatches) {
+      try {
+        const json = JSON.parse(match.replace(/<script[^>]*>|<\/script>/g, ""));
+        if (
+          json["@type"] === "Product" ||
+          (Array.isArray(json) && json[0]?.["@type"] === "Product")
+        ) {
+          const products = Array.isArray(json) ? json : [json];
+          for (const p of products) {
+            const name = p.name || p.title;
+            const price = extractPrice(p.offers?.price || p.price);
+            const image = p.image || p.thumbnailUrl;
+            if (name && price) {
+              results.push({ name, price, image });
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  // Fallback: regex-based extraction for Turkish e-commerce sites
+  if (results.length === 0) {
+    // Sok pattern
+    const sokPattern =
+      /<a[^>]*href="[^"]*\/urun\/[^"]*"[^>]*>[\s\S]*?<h[2-6][^>]*>([^<]+)<\/h[2-6]>[\s\S]*?<span[^>]*>([^<]*\d+[.,]\d+[^<]*)<\/span>/gi;
+    let match;
+    while ((match = sokPattern.exec(html)) !== null) {
+      const name = match[1].trim();
+      const priceText = match[2].trim();
+      const price = extractPrice(priceText);
+      if (name && price && name.length > 2) {
+        results.push({ name, price });
+      }
+    }
+
+    // Carrefour pattern
+    const carrefourPattern =
+      /<div[^>]*class="[^"]*product[^"]*"[^>]*>[\s\S]*?<h[2-6][^>]*>([^<]+)<\/h[2-6]>[\s\S]*?<span[^>]*class="[^"]*price[^"]*"[^>]*>([^<]+)<\/span>/gi;
+    while ((match = carrefourPattern.exec(html)) !== null) {
+      const name = match[1].trim();
+      const priceText = match[2].trim();
+      const price = extractPrice(priceText);
+      if (name && price && name.length > 2) {
+        results.push({ name, price });
+      }
+    }
+
+    // Generic pattern for any site
+    const genericPattern =
+      /<a[^>]*>[\s\S]*?<h[2-6][^>]*>([^<]{3,100})<\/h[2-6]>[\s\S]*?(₺\s*[\d.,]+|[\d.,]+\s*TL|[\d.,]+\s*₺)/gi;
+    while ((match = genericPattern.exec(html)) !== null) {
+      const name = match[1].trim();
+      const priceText = match[2].trim();
+      const price = extractPrice(priceText);
+      if (name && price && !results.find((r) => r.name === name)) {
+        results.push({ name, price });
+      }
+    }
+  }
+
+  return results.slice(0, 10);
+}
+
+function extractPrice(text) {
+  if (!text) return null;
+  const patterns = [
+    /₺\s*([\d.,]+)/,
+    /([\d.,]+)\s*TL/i,
+    /([\d.,]+)\s*₺/,
+    /(\d+[.,]\d{2})/,
+  ];
+
+  for (const pattern of patterns) {
+    const m = String(text).match(pattern);
+    if (m) {
+      const numStr = m[1].replace(/\./g, "").replace(",", ".");
+      const val = parseFloat(numStr);
+      if (!isNaN(val) && val > 0.5 && val < 10000) return val;
+    }
+  }
+  return null;
+}
+
 async function scrapeWithApi(url) {
   if (!SCRAPER_API_KEY) {
     console.error("SCRAPER_API_KEY not set");
     return null;
   }
 
-  const apiUrl = `http://api.scraperapi.com?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&render=true&country_code=tr`;
+  // Try without render first (faster, more reliable)
+  const apiUrl = `https://api.scraperapi.com?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(url)}&country_code=tr`;
 
-  return new Promise((resolve, reject) => {
-    const req = https.get(
-      apiUrl.replace("http:", "https:"),
-      { timeout: 30000 },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => resolve(data));
-      },
-    );
+  return new Promise((resolve) => {
+    const req = https.get(apiUrl, { timeout: 25000 }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => resolve(data));
+    });
     req.on("error", (err) => {
       console.error("ScraperAPI error:", err.message);
       resolve(null);
     });
     req.on("timeout", () => {
       req.destroy();
-      console.error("ScraperAPI timeout");
       resolve(null);
     });
   });
-}
-
-function parsePrice(text) {
-  if (!text) return null;
-  const patterns = [
-    /₺\s*([\d.,]+)/,
-    /([\d.,]+)\s*TL/i,
-    /([\d]+[.,][\d]{2})/,
-    /(\d+)[.,](\d+)/,
-  ];
-
-  for (const pattern of patterns) {
-    const m = text.match(pattern);
-    if (m) {
-      const numStr = (m[1] || m[0]).replace(/\./g, "").replace(",", ".");
-      const val = parseFloat(numStr);
-      if (!isNaN(val) && val > 0) return val;
-    }
-  }
-  return null;
-}
-
-function isValidProductName(name) {
-  if (!name) return false;
-  if (name.length < 3) return false;
-  if (/^[\d.,]+$/.test(name)) return false;
-  if (/^[\d.,]+[₺TL\s]*$/i.test(name)) return false;
-  if (/^\d+[.,]\d+$/.test(name)) return false;
-  if (name.toLowerCase() === "adet") return false;
-  if (name.toLowerCase() === "kategori") return false;
-  return true;
-}
-
-function extractProductsFromHtml(html, market) {
-  const items = [];
-  const seen = new Set();
-
-  // Simple regex-based extraction
-  const productPatterns = [
-    /<a[^>]*href="[^"]*\/(?:urun|p)\/[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
-    /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-  ];
-
-  for (const pattern of productPatterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      const block = match[1] || match[0];
-
-      // Extract price
-      const price = parsePrice(block);
-      if (!price || price < 0.5) continue;
-
-      // Extract name
-      let name = "";
-      const nameMatch =
-        block.match(/<h[2-4][^>]*>([^<]+)<\/h[2-4]>/i) ||
-        block.match(/class="[^"]*name[^"]*"[^>]*>([^<]+)</i) ||
-        block.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)</i) ||
-        block.match(/<span[^>]*>([^<]{10,100})</i);
-
-      if (nameMatch) {
-        name = nameMatch[1].trim();
-      }
-
-      if (!isValidProductName(name)) continue;
-
-      // Extract image
-      let image = "";
-      const imgMatch =
-        block.match(/<img[^>]*src="([^"]+)"/i) ||
-        block.match(/data-src="([^"]+)"/i);
-      if (imgMatch) {
-        image = imgMatch[1];
-        if (image.startsWith("//")) image = "https:" + image;
-      }
-
-      const key = name.toLowerCase().substring(0, 30);
-      if (!seen.has(key)) {
-        seen.add(key);
-        items.push({
-          market: market,
-          name: name.substring(0, 100),
-          price,
-          image,
-        });
-      }
-
-      if (items.length >= 10) break;
-    }
-    if (items.length >= 10) break;
-  }
-
-  return items;
 }
 
 async function scrapeSok(product) {
@@ -131,14 +127,26 @@ async function scrapeSok(product) {
 
   const html = await scrapeWithApi(url);
   if (!html) {
-    console.log("[Sok] Failed to fetch, returning mock data");
+    console.log("[Sok] Failed to fetch");
     return getMockData(product, "Sok");
   }
 
-  const items = extractProductsFromHtml(html, "Sok");
+  const items = parseHtml(html).map((item) => ({
+    market: "Sok",
+    name: item.name.substring(0, 100),
+    price: item.price,
+    image: item.image || "",
+  }));
+
   console.log(`[Sok] Found ${items.length} items`);
 
-  return items.length > 0 ? items : getMockData(product, "Sok");
+  // If no items found, return mock data for testing
+  if (items.length === 0) {
+    console.log("[Sok] No items found, using mock data");
+    return getMockData(product, "Sok");
+  }
+
+  return items;
 }
 
 async function scrapeCarrefour(product) {
@@ -147,29 +155,38 @@ async function scrapeCarrefour(product) {
 
   const html = await scrapeWithApi(url);
   if (!html) {
-    console.log("[Carrefour] Failed to fetch, returning mock data");
+    console.log("[Carrefour] Failed to fetch");
     return getMockData(product, "Carrefour");
   }
 
-  const items = extractProductsFromHtml(html, "Carrefour");
+  const items = parseHtml(html).map((item) => ({
+    market: "Carrefour",
+    name: item.name.substring(0, 100),
+    price: item.price,
+    image: item.image || "",
+  }));
+
   console.log(`[Carrefour] Found ${items.length} items`);
 
-  return items.length > 0
-    ? items.slice(0, 15)
-    : getMockData(product, "Carrefour");
+  if (items.length === 0) {
+    console.log("[Carrefour] No items found, using mock data");
+    return getMockData(product, "Carrefour");
+  }
+
+  return items.slice(0, 15);
 }
 
 function getMockData(product, market) {
   return [
     {
       market: market,
-      name: `${product} - ${market} Result 1`,
+      name: `${product} - ${market} Ürün 1`,
       price: market === "Sok" ? 25.9 : 27.5,
       image: "",
     },
     {
       market: market,
-      name: `${product} - ${market} Result 2`,
+      name: `${product} - ${market} Ürün 2`,
       price: market === "Sok" ? 32.5 : 30.0,
       image: "",
     },
@@ -244,8 +261,8 @@ async function searchMultiple(product) {
 
   try {
     const [sok, carrefour] = await Promise.all([
-      scrapeSok(product).catch(() => getMockData(product, "Sok")),
-      scrapeCarrefour(product).catch(() => getMockData(product, "Carrefour")),
+      scrapeSok(product),
+      scrapeCarrefour(product),
     ]);
 
     return {
@@ -284,6 +301,7 @@ exports.handler = async (event, context) => {
   path = path.split("?")[0];
 
   console.log("Handler called - path:", path, "method:", event.httpMethod);
+  console.log("API Key present:", !!SCRAPER_API_KEY);
 
   let body;
 
