@@ -9,7 +9,7 @@ const {
   searchMultiple,
 } = require("./scraper");
 
-const PORTS_TO_TRY = [5050, 5051, 5052, 5053, 8080, 3000];
+const PORTS_TO_TRY = [15050, 15051, 15052, 15053, 18080, 13000];
 const IS_PRODUCTION =
   process.env.NODE_ENV === "production" || process.env.RENDER;
 
