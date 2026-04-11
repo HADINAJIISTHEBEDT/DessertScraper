@@ -409,9 +409,9 @@ async function detectServerPort() {
       hostname !== "localhost" &&
       hostname !== "127.0.0.1");
 
-  if (isNetlify) {
-    SCRAPER_API_BASE = `${window.location.origin}/api`;
-    console.log(`Using Netlify API: ${SCRAPER_API_BASE}`);
+  if (isNetlify || hostname.includes("onrender")) {
+    SCRAPER_API_BASE = `${window.location.origin}`;
+    console.log(`Using cloud API: ${SCRAPER_API_BASE}`);
     serverFound = true;
     return true;
   }
