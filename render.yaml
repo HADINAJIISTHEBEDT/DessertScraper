@@ -3,9 +3,11 @@ services:
     name: dessert-cafe-manager
     runtime: node
     plan: free
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: npm install --ignore-scripts
+    startCommand: node server-simple.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: 18
+      - key: SCRAPER_API_KEY
+        value: 75476a526602a90ef5aa68cbabec741c
