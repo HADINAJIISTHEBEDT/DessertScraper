@@ -5,7 +5,7 @@
   "main": "main.js",
   "bin": "main.js",
   "scripts": {
-    "start": "node main.js",
+    "start": "node server-simple.js",
     "dev": "node server.js",
     "build": "pkg . --targets node18-win-x64 --output DessertCafeManager.exe",
     "build-all": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64"
@@ -38,7 +38,7 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
-    "pkg": "^5.8.1",
-    "node-windows": "^1.0.0-beta.8"
+    "node-windows": "^1.0.0-beta.8",
+    "pkg": "^5.8.1"
   }
 }
