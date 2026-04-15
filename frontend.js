@@ -41,7 +41,7 @@ const translations = {
     clearResults: "Clear Results", closeBtn: "Close",
     searchingFor: "Searching Şok and Carrefour for", noResultsFound: "No results found", select: "Select",
     deleteConfirm: "Delete", enterDessertName: "Enter dessert name:",
-    quantityToSearch: "Quantity", estimatedCost: "Estimated Cost",
+    quantityToSearch: "Quantity", quantityUnit: "Unit", estimatedCost: "Estimated Cost",
     language: "Language", english: "English", arabic: "العربية",
   },
   ar: {
@@ -73,7 +73,7 @@ const translations = {
     clearResults: "مسح النتائج", closeBtn: "إغلاق",
     searchingFor: "البحث في شوك وكارفور عن", noResultsFound: "لم يتم العثور على نتائج", select: "اختيار",
     deleteConfirm: "حذف", enterDessertName: "أدخل اسم الحلوى:",
-    quantityToSearch: "الكمية", estimatedCost: "التكلفة التقديرية",
+    quantityToSearch: "الكمية", quantityUnit: "الوحدة", estimatedCost: "التكلفة التقديرية",
     language: "اللغة", english: "English", arabic: "العربية",
   },
 };
@@ -95,6 +95,7 @@ function translateUI() {
   const p = document.getElementById("password"); if (p) p.placeholder = t("password");
   const psi = document.getElementById("pickSearchInput"); if (psi) psi.placeholder = t("typeProductName");
   const pqi = document.getElementById("pickQuantityInput"); if (pqi) pqi.placeholder = t("quantityToSearch");
+  const pqu = document.getElementById("pickQuantityUnit"); if (pqu) pqu.title = t("quantityUnit");
   renderLanguageSwitcher();
 }
 
@@ -372,10 +373,12 @@ let _pickTarget = null;
 window.openPickModal = async function(dessertIndex, ingredientIndex) {
   _pickTarget = {dessertIndex, ingredientIndex};
   const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
+  const unitEl = document.getElementById(`ing_unit_${dessertIndex}_${ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${dessertIndex}_${ingredientIndex}`);
-  const modal = document.getElementById("pickModal"), searchInput = document.getElementById("pickSearchInput"), qtyInput = document.getElementById("pickQuantityInput"), resultsBox = document.getElementById("pickResults");
+  const modal = document.getElementById("pickModal"), searchInput = document.getElementById("pickSearchInput"), qtyInput = document.getElementById("pickQuantityInput"), qtyUnit = document.getElementById("pickQuantityUnit"), resultsBox = document.getElementById("pickResults");
   searchInput.value = (nameEl?.value||"").trim(); resultsBox.innerHTML = ""; modal.classList.remove("hidden");
   if (qtyInput) qtyInput.value = qtyEl?.value || "1";
+  if (qtyUnit) qtyUnit.value = unitEl?.value || "piece";
   if (searchInput.value) await runPickSearch(searchInput.value);
 };
 window.closePickModal = function() { document.getElementById("pickModal").classList.add("hidden"); _pickTarget = null; };
@@ -386,16 +389,17 @@ window.runPickSearch = async function(query) {
   if (!query) return;
   if (!SCRAPER_API_BASE) await detectServerPort();
   const quantity = Math.max(0.01, Number(document.getElementById("pickQuantityInput")?.value || "1"));
+  const quantityUnit = document.getElementById("pickQuantityUnit")?.value || "piece";
   const resultsBox = document.getElementById("pickResults");
   resultsBox.innerHTML = `<p class="pick-loading">🔍 ${t("searchingFor")} "<strong>${query}</strong>"…</p>`;
   try {
     const res = await fetch(`${SCRAPER_API_BASE}/search-all`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({product:query}) });
     if (!res.ok) throw new Error(`API error ${res.status}`);
-    renderPickResults(await res.json(), quantity);
+    renderPickResults(await res.json(), quantity, quantityUnit);
   } catch(err) { resultsBox.innerHTML = `<p class="pick-error">Error: ${err.message}</p>`; }
 };
 
-function renderPickResults(data, quantity = 1) {
+function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
   const resultsBox = document.getElementById("pickResults");
   const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"carrefour",label:"Carrefour",color:"#2980b9"}];
   let html = '<div class="pick-markets-container">';
@@ -406,7 +410,7 @@ function renderPickResults(data, quantity = 1) {
     else items.forEach(item => {
       const img = item.image ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` : "<span>📦</span>";
       const estimated = Number.isFinite(Number(item.price)) ? formatTryPrice(Number(item.price) * quantity) : "-";
-      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")}: ${estimated}</div></div><button class="pick-select-btn" data-name="${escapeAttr(item.name)}">${t("select")}</button></div>`;
+      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)}): ${estimated}</div></div><button class="pick-select-btn" data-name="${escapeAttr(item.name)}">${t("select")}</button></div>`;
     });
     html += `</div></div>`;
   });
@@ -420,9 +424,12 @@ window.applyPickedItem = function(name) {
   if (!_pickTarget) return;
   const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const unitEl = document.getElementById(`ing_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyInput = document.getElementById("pickQuantityInput");
+  const qtyUnit = document.getElementById("pickQuantityUnit");
   if (el) el.value = name;
   if (qtyEl && qtyInput && qtyInput.value) qtyEl.value = qtyInput.value;
+  if (unitEl && qtyUnit && qtyUnit.value) unitEl.value = qtyUnit.value;
   closePickModal();
 };
 

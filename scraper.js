@@ -238,8 +238,14 @@ async function compareIngredients(ingredients) {
     if (!name || quantity <= 0) continue;
 
     const [sokItems, carrefourItems] = await Promise.all([
-      scrapeSok(name),
-      scrapeCarrefour(name),
+      scrapeSok(name).catch((err) => {
+        console.error(`[Compare][Sok] ${name}:`, err.message);
+        return [];
+      }),
+      scrapeCarrefour(name).catch((err) => {
+        console.error(`[Compare][Carrefour] ${name}:`, err.message);
+        return [];
+      }),
     ]);
 
     const sokItem =
@@ -294,8 +300,8 @@ async function compareIngredients(ingredients) {
 
 async function searchProduct(product, market) {
   console.log(`[Search] Looking for "${product}" in ${market}`);
-  if (market === "sok") return await scrapeSok(product);
-  if (market === "carrefour") return await scrapeCarrefour(product);
+  if (market === "sok") return await scrapeSok(product).catch(() => []);
+  if (market === "carrefour") return await scrapeCarrefour(product).catch(() => []);
   return null;
 }
 
