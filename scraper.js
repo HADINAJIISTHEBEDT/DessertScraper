@@ -349,7 +349,11 @@ async function scrapeCarrefour(product) {
         timeout: NAVIGATION_TIMEOUT_MS,
       });
 
-      await page.waitForSelector("body", { timeout: 5000 });
+      await page
+        .waitForFunction(() => document.readyState === "interactive" || document.readyState === "complete", {
+          timeout: 5000,
+        })
+        .catch(() => {});
 
       const deduped = await settleAndCollect(page, "Carrefour");
       console.log(`[Carrefour] Results:`, deduped.length, "items");
