@@ -215,7 +215,7 @@ async function extractCarrefourProducts(page) {
       }
     });
 
-    return items.slice(0, 20);
+    return items;
   });
 }
 
