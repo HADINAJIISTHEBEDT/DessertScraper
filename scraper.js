@@ -12,11 +12,37 @@ const BROWSER_OPTIONS = {
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
     "--disable-blink-features=AutomationControlled",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
   ],
 };
 
+const NAVIGATION_TIMEOUT_MS = 25000;
+const SETTLE_DELAY_MS = 900;
+const SCROLL_DELAY_MS = 700;
+
 async function createPage(browser) {
   const page = await browser.newPage();
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    const type = request.resourceType();
+    const url = request.url();
+    if (
+      type === "image" ||
+      type === "font" ||
+      type === "media" ||
+      url.includes("googletagmanager") ||
+      url.includes("google-analytics") ||
+      url.includes("doubleclick") ||
+      url.includes("hotjar") ||
+      url.includes("facebook")
+    ) {
+      request.abort();
+      return;
+    }
+    request.continue();
+  });
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
   );
@@ -93,23 +119,18 @@ function withTurkishVariants(product) {
   const raw = String(product || "").trim().toLowerCase();
   if (!raw) return [];
 
-  const asciiToTurkish = {
-    c: "\u00E7",
-    g: "\u011F",
-    i: "\u0131",
-    o: "\u00F6",
-    s: "\u015F",
-    u: "\u00FC",
-  };
-
   const variants = new Set([raw]);
-  let converted = "";
-  for (const char of raw) converted += asciiToTurkish[char] || char;
-  variants.add(converted);
+  const wordLevelVariants = [
+    ["sut", "s\u00FCt"],
+    ["yogurt", "yo\u011Furt"],
+    ["cilek", "\u00E7ilek"],
+    ["kasar", "ka\u015Far"],
+    ["cikolata", "\u00E7ikolata"],
+  ];
 
-  if (raw.includes("sut")) variants.add("s\u00FCt");
-  if (raw.includes("yogurt")) variants.add("yo\u011Furt");
-  if (raw.includes("peynir")) variants.add("peynir");
+  for (const [from, to] of wordLevelVariants) {
+    if (raw.includes(from)) variants.add(raw.replaceAll(from, to));
+  }
 
   return [...variants].filter(Boolean);
 }
@@ -285,6 +306,13 @@ async function collectPageItems(page, market) {
   }, market);
 }
 
+async function settleAndCollect(page, market) {
+  await delay(SETTLE_DELAY_MS);
+  await page.evaluate(() => window.scrollBy(0, Math.min(900, window.innerHeight)));
+  await delay(SCROLL_DELAY_MS);
+  return dedupeItems(await collectPageItems(page, market));
+}
+
 async function scrapeSok(product) {
   const browser = await puppeteer.launch(BROWSER_OPTIONS);
   const page = await createPage(browser);
@@ -292,15 +320,11 @@ async function scrapeSok(product) {
   try {
     console.log(`[Sok] Searching for: ${product}`);
     await page.goto(`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(product)}`, {
-      waitUntil: "networkidle2",
-      timeout: 60000,
+      waitUntil: "domcontentloaded",
+      timeout: NAVIGATION_TIMEOUT_MS,
     });
 
-    await delay(3000);
-    await page.evaluate(() => window.scrollBy(0, 1000));
-    await delay(1500);
-
-    const deduped = dedupeItems(await collectPageItems(page, "Sok"));
+    const deduped = await settleAndCollect(page, "Sok");
     console.log(`[Sok] Results:`, deduped.length, "items");
     return deduped.slice(0, 20);
   } catch (err) {
@@ -321,16 +345,13 @@ async function scrapeCarrefour(product) {
     try {
       console.log(`[Carrefour] Searching for: ${query}`);
       await page.goto(`https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`, {
-        waitUntil: "networkidle2",
-        timeout: 60000,
+        waitUntil: "domcontentloaded",
+        timeout: NAVIGATION_TIMEOUT_MS,
       });
 
-      await delay(4000);
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
-      await delay(1500);
       await page.waitForSelector("body", { timeout: 5000 });
 
-      const deduped = dedupeItems(await collectPageItems(page, "Carrefour"));
+      const deduped = await settleAndCollect(page, "Carrefour");
       console.log(`[Carrefour] Results:`, deduped.length, "items");
       if (deduped.length > 0) return deduped.slice(0, 20);
     } catch (err) {
