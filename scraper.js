@@ -313,6 +313,49 @@ async function settleAndCollect(page, market) {
   return dedupeItems(await collectPageItems(page, market));
 }
 
+async function collectCarrefourItems(page) {
+  const items = await page.evaluate(() => {
+    const normalizeName = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const parseTextPrice = (value) => {
+      const text = String(value || "");
+      const match =
+        text.match(/\u20BA\s*([\d.,]+)/) ||
+        text.match(/([\d.,]+)\s*TL/i) ||
+        text.match(/([\d]+[.,][\d]{2})/);
+      if (!match) return null;
+      const parsed = Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const results = [];
+    const cards = Array.from(document.querySelectorAll(".product-listing-item"));
+    for (const card of cards) {
+      const name =
+        normalizeName(card.querySelector(".item-name")?.textContent) ||
+        normalizeName(card.querySelector("img")?.getAttribute("alt"));
+      const priceText =
+        card.querySelector(".js-variant-discounted-price")?.textContent ||
+        card.querySelector(".item-price")?.textContent ||
+        card.querySelector(".price-cont")?.textContent ||
+        card.textContent;
+      const price = parseTextPrice(priceText);
+      const image =
+        card.querySelector("img")?.currentSrc ||
+        card.querySelector("img")?.getAttribute("src") ||
+        card.querySelector("img")?.getAttribute("data-src") ||
+        "";
+
+      if (name && price) {
+        results.push({ market: "Carrefour", name, price, image });
+      }
+    }
+
+    return results;
+  });
+
+  return dedupeItems(items);
+}
+
 async function scrapeSok(product) {
   const browser = await puppeteer.launch(BROWSER_OPTIONS);
   const page = await createPage(browser);
@@ -355,7 +398,10 @@ async function scrapeCarrefour(product) {
         })
         .catch(() => {});
 
-      const deduped = await settleAndCollect(page, "Carrefour");
+      let deduped = await collectCarrefourItems(page);
+      if (deduped.length === 0) {
+        deduped = await settleAndCollect(page, "Carrefour");
+      }
       console.log(`[Carrefour] Results:`, deduped.length, "items");
       if (deduped.length > 0) return deduped.slice(0, 20);
     } catch (err) {
