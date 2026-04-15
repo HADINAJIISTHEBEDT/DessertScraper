@@ -171,30 +171,7 @@ function carrefourQueryVariants(product) {
   return [...variants];
 }
 
-async function prepareCarrefourPage(page, query) {
-  await gotoFast(page, `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`);
-  await delay(1600);
-
-  await page
-    .evaluate(() => {
-      const nodes = Array.from(document.querySelectorAll("button, a, span"));
-      const labels = ["kabul et", "accept", "tamam", "onayla"];
-      for (const node of nodes) {
-        const text = String(node.textContent || "").trim().toLowerCase();
-        if (labels.some((label) => text === label || text.includes(label))) {
-          node.click();
-        }
-      }
-    })
-    .catch(() => {});
-
-  for (let i = 0; i < 3; i += 1) {
-    await page.evaluate(() => window.scrollBy(0, 1100));
-    await delay(700);
-  }
-}
-
-async function extractCarrefourCards(page) {
+async function extractCarrefourItems(page) {
   const items = await page.evaluate(() => {
     const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const parsePrice = (text) => {
@@ -234,7 +211,7 @@ async function extractCarrefourCards(page) {
         `${card.querySelector(".item-price")?.textContent || ""} ` +
         rawText;
       const price = parsePrice(priceText);
-      if (!name || !Number.isFinite(price)) return;
+      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000) return;
 
       const img = card.querySelector("img");
       const image =
@@ -258,88 +235,72 @@ async function extractCarrefourCards(page) {
   return dedupeItems(items);
 }
 
-async function extractCarrefourFromText(page) {
-  const items = await page.evaluate(() => {
-    const parsePrice = (text) => {
-      const str = String(text || "");
-      const match =
-        str.match(/\u20BA\s*([\d.,]+)/) ||
-        str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
-        str.match(/([\d]+[.,]\d{2})/);
-      if (!match) return null;
-      return Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
-    };
-
-    const lines = String(document.body?.innerText || "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const out = [];
-    const seen = new Set();
-
-    for (let i = 0; i < lines.length; i += 1) {
-      const price = parsePrice(lines[i]);
-      if (!price) continue;
-
-      let name = "";
-      for (let j = i - 1; j >= Math.max(0, i - 4); j -= 1) {
-        const candidate = lines[j];
-        if (!candidate || candidate.length < 3) continue;
-        if (parsePrice(candidate)) continue;
-        if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate)) continue;
-        name = candidate;
-        break;
-      }
-
-      if (!name) continue;
-      const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push({ market: "Carrefour", name, price, image: "" });
-      }
-    }
-
-    return out;
-  });
-
-  return dedupeItems(items);
-}
-
-async function scrapeCarrefour(product) {
+async function scrapeCarrefourSingleQuery(query) {
   const browser = await puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
-  const page = await createConfiguredPage(browser);
+  try {
+    // First attempt: static HTML mode (JS disabled). Often works better on Render.
+    const staticPage = await browser.newPage();
+    await staticPage.setJavaScriptEnabled(false);
+    await staticPage.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    );
+    await staticPage.setViewport({ width: 1440, height: 2200 });
+    await staticPage.setExtraHTTPHeaders({
+      "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    });
+    await staticPage.goto(
+      `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
+      { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS },
+    );
+    await delay(1200);
+    const staticItems = await extractCarrefourItems(staticPage);
+    if (staticItems.length > 0) return staticItems;
 
+    // Second attempt: JS enabled + small scrolls + cookie click
+    const page = await createConfiguredPage(browser);
+    await gotoFast(page, `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`);
+    await delay(1600);
+    await page
+      .evaluate(() => {
+        const labels = ["kabul et", "accept", "tamam", "onayla"];
+        const nodes = Array.from(document.querySelectorAll("button, a, span"));
+        for (const node of nodes) {
+          const text = String(node.textContent || "").trim().toLowerCase();
+          if (labels.some((label) => text === label || text.includes(label))) {
+            node.click();
+          }
+        }
+      })
+      .catch(() => {});
+    for (let i = 0; i < 3; i += 1) {
+      await page.evaluate(() => window.scrollBy(0, 1100));
+      await delay(700);
+    }
+    return await extractCarrefourItems(page);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function scrapeCarrefour(product) {
   try {
     const queries = carrefourQueryVariants(product);
-
     for (const query of queries) {
       console.log(`[Carrefour] Searching for: ${query}`);
-      await prepareCarrefourPage(page, query);
-
-      const cardItems = await extractCarrefourCards(page);
-      if (cardItems.length > 0) {
-        console.log(`[Carrefour] Results: ${cardItems.length} items`);
-        return cardItems;
-      }
-
-      const textItems = await extractCarrefourFromText(page);
-      if (textItems.length > 0) {
-        console.log(`[Carrefour] Results: ${textItems.length} items`);
-        return textItems;
+      const items = await scrapeCarrefourSingleQuery(query);
+      if (items.length > 0) {
+        console.log(`[Carrefour] Results: ${items.length} items`);
+        return items;
       }
     }
-
     console.log("[Carrefour] Results: 0 items");
     return [];
   } catch (err) {
     console.error(`[Carrefour] Error:`, err.message);
     return [];
-  } finally {
-    await browser.close();
   }
 }
 
