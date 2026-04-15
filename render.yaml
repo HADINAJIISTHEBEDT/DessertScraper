@@ -18,3 +18,5 @@ services:
         value: 30000
       - key: CARREFOUR_DEBUG
         value: 0
+      - key: CARREFOUR_MIRROR_FALLBACK
+        value: 1

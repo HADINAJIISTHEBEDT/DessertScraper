@@ -32,11 +32,13 @@ CARREFOUR_PROXY_API_KEY=your_proxy_api_key
 CARREFOUR_PROXY_REGION=TR
 CARREFOUR_PROXY_TIMEOUT_MS=30000
 CARREFOUR_DEBUG=0
+CARREFOUR_MIRROR_FALLBACK=1
 
 Modes:
 - off: use direct Puppeteer only
 - required: use proxy only
 - fallback: proxy first, then direct Puppeteer fallback
+- mirror fallback: when enabled, tries r.jina.ai text mirror if proxy/direct fail
 
 Your app will have a URL like:
 https://dessert-cafe-manager.onrender.com
