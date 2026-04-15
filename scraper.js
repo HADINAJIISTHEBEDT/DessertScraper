@@ -41,6 +41,40 @@ function parsePrice(txt) {
   return null;
 }
 
+function normalizeKeyName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeItems(items) {
+  const byKey = new Map();
+
+  for (const item of items) {
+    const key = `${normalizeKeyName(item.name)}|${Number(item.price || 0).toFixed(2)}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      continue;
+    }
+
+    const existingScore =
+      (existing.image ? 2 : 0) +
+      (existing.name && existing.name.length > 8 ? 1 : 0);
+    const nextScore =
+      (item.image ? 2 : 0) +
+      (item.name && item.name.length > 8 ? 1 : 0);
+
+    if (nextScore > existingScore) {
+      byKey.set(key, item);
+    }
+  }
+
+  return [...byKey.values()];
+}
+
 async function scrapeSok(product) {
   const browser = await puppeteer.launch(BROWSER_OPTIONS);
   const page = await createPage(browser);
@@ -134,12 +168,13 @@ async function scrapeSok(product) {
         }
       });
 
-      return items.slice(0, 20);
+      return items;
     });
 
-    console.log(`[Sok] Results:`, result?.length || 0, "items");
+    const deduped = dedupeItems(result || []);
+    console.log(`[Sok] Results:`, deduped.length, "items");
     await browser.close();
-    return result || [];
+    return deduped.slice(0, 20);
   } catch (err) {
     console.error(`[Sok] Error:`, err.message);
     await browser.close();
@@ -161,6 +196,7 @@ async function scrapeCarrefour(product) {
     await delay(4000);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
     await delay(1500);
+    await page.waitForSelector("body", { timeout: 5000 });
 
     const result = await page.evaluate(() => {
       function normalizeName(value) {
@@ -175,11 +211,22 @@ async function scrapeCarrefour(product) {
       }
       const items = [];
       const seen = new Set();
-      document
-        .querySelectorAll(
-          'a[href*="/p/"], a[href*="/urun/"], article, [class*="product-card"], [class*="product-item"], [class*="product"]'
-        )
-        .forEach((el) => {
+      const selectors = [
+        'a[href*="/p/"]',
+        'a[href*="/urun/"]',
+        'article[class*="product"]',
+        '[class*="product-card"]',
+        '[class*="product-item"]',
+        '[class*="product"]',
+        '[data-testid*="product"]',
+      ];
+
+      const candidates = [];
+      selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((el) => candidates.push(el));
+      });
+
+      candidates.forEach((el) => {
           const text = normalizeName(el.innerText);
           if (text.length < 5) return;
 
@@ -214,12 +261,13 @@ async function scrapeCarrefour(product) {
           }
         });
 
-      return items.slice(0, 20);
+      return items;
     });
 
-    console.log(`[Carrefour] Results:`, result?.length || 0, "items");
+    const deduped = dedupeItems(result || []);
+    console.log(`[Carrefour] Results:`, deduped.length, "items");
     await browser.close();
-    return result || [];
+    return deduped.slice(0, 20);
   } catch (err) {
     console.error(`[Carrefour] Error:`, err.message);
     await browser.close();
