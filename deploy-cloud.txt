@@ -19,6 +19,25 @@ Option 3: Heroku (Paid)
 3. Deploy from GitHub
 4. Requires paid plan for 24/7
 
+Build command for Render:
+npm install --ignore-scripts && npx puppeteer browsers install chrome
+
+Start command for Render:
+node server.js
+
+Carrefour proxy environment variables:
+CARREFOUR_PROXY_MODE=fallback
+CARREFOUR_PROXY_ENDPOINT=https://your-proxy-endpoint
+CARREFOUR_PROXY_API_KEY=your_proxy_api_key
+CARREFOUR_PROXY_REGION=TR
+CARREFOUR_PROXY_TIMEOUT_MS=30000
+CARREFOUR_DEBUG=0
+
+Modes:
+- off: use direct Puppeteer only
+- required: use proxy only
+- fallback: proxy first, then direct Puppeteer fallback
+
 Your app will have a URL like:
 https://dessert-cafe-manager.onrender.com
 

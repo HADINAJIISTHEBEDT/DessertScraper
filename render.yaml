@@ -3,10 +3,18 @@ services:
     name: dessert-cafe-manager
     runtime: node
     plan: free
-    buildCommand: npm install --ignore-scripts
+    buildCommand: npm install --ignore-scripts && npx puppeteer browsers install chrome
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION
         value: 18
       - key: SCRAPER_API_KEY
         value: 75476a526602a90ef5aa68cbabec741c
+      - key: CARREFOUR_PROXY_MODE
+        value: fallback
+      - key: CARREFOUR_PROXY_REGION
+        value: TR
+      - key: CARREFOUR_PROXY_TIMEOUT_MS
+        value: 30000
+      - key: CARREFOUR_DEBUG
+        value: 0
