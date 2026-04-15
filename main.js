@@ -115,7 +115,7 @@ async function startServer() {
 
   // Wait for server to start
   let attempts = 0;
-  const maxAttempts = 30;
+  const maxAttempts = 300;
 
   const checkServer = setInterval(async () => {
     attempts++;
