@@ -5,19 +5,35 @@ puppeteer.use(StealthPlugin());
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const BROWSER_OPTIONS = {
+  headless: true,
+  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+};
+
+async function createPage(browser) {
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+  );
+  await page.setViewport({ width: 1440, height: 2200 });
+  await page.setExtraHTTPHeaders({
+    "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+  });
+  return page;
+}
+
 function parsePrice(txt) {
   if (!txt) return null;
   const patterns = [
     /₺\s*([\d.,]+)/,
     /([\d.,]+)\s*TL/i,
     /([\d]+[.,][\d]{2})/,
-    /(\d+)[.,](\d+)/,
   ];
 
   for (const pattern of patterns) {
     const m = txt.match(pattern);
     if (m) {
-      const numStr = (m[1] || m[0]).replace(/\./g, "").replace(",", ".");
+      const numStr = m[1].replace(/\./g, "").replace(",", ".");
       const val = parseFloat(numStr);
       if (!isNaN(val) && val > 0) return val;
     }
@@ -26,134 +42,99 @@ function parsePrice(txt) {
 }
 
 async function scrapeSok(product) {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const page = await browser.newPage();
+  const browser = await puppeteer.launch(BROWSER_OPTIONS);
+  const page = await createPage(browser);
 
   try {
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    );
-
     console.log(`[Sok] Searching for: ${product}`);
     await page.goto(
       `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(product)}`,
-      { waitUntil: "domcontentloaded", timeout: 60000 },
+      { waitUntil: "networkidle2", timeout: 60000 }
     );
 
     await delay(3000);
-    await page.waitForSelector("body");
-    await delay(2000);
-
-    // Scroll to load products
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    });
-    await delay(2000);
+    await page.evaluate(() => window.scrollBy(0, 1000));
+    await delay(1500);
 
     const result = await page.evaluate(() => {
-      const parsePrice = (txt) => {
-        if (!txt) return null;
-        const patterns = [
-          /₺\s*([\d.,]+)/,
-          /([\d.,]+)\s*TL/i,
-          /([\d]+[.,][\d]{2})/,
-          /(\d+)[.,](\d+)/,
-        ];
-
-        for (const pattern of patterns) {
-          const m = txt.match(pattern);
-          if (m) {
-            const numStr = (m[1] || m[0]).replace(/\./g, "").replace(",", ".");
-            const val = parseFloat(numStr);
-            if (!isNaN(val) && val > 0) return val;
-          }
-        }
-        return null;
-      };
-
+      function normalizeName(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+      }
+      function readPrice(text) {
+        const match = String(text || "").match(/₺\s*([\d.,]+)|([\d]+[.,]\d{2})/);
+        if (!match) return null;
+        const raw = match[1] || match[2];
+        const parsed = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : null;
+      }
       const items = [];
       const seen = new Set();
+      const selectors = [
+        "[data-testid*='product']",
+        "article",
+        "a[href*='/urun/']",
+        "a[href*='/product/']",
+        ".product-card",
+        ".product-item",
+        "[class*='product']",
+      ];
 
-      // Get all product links and containers
-      const allLinks = document.querySelectorAll(
-        'a[href*="/urun/"], a[href*="/product/"]',
-      );
-      const productCards = document.querySelectorAll(
-        '[class*="product"], [class*="Product"], .product-card, .product-item, article',
-      );
+      const candidates = [];
+      selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((el) => candidates.push(el));
+      });
 
-      const elements = allLinks.length > 0 ? allLinks : productCards;
+      candidates.forEach((el) => {
+        const text = normalizeName(el.innerText);
+        if (text.length < 4) return;
+        const price = readPrice(text);
+        if (!price || price < 0.1) return;
 
-      elements.forEach((el) => {
-        try {
-          const text = (el.innerText || el.textContent || "").trim();
-          if (!text || text.length < 5) return;
-
-          const price = parsePrice(text);
-          if (!price || price < 0.5) return;
-
-          // Try to get product name
-          let name = "";
-          const nameSelectors = [
-            "h2",
-            "h3",
-            "h4",
-            ".name",
-            ".title",
-            '[class*="name"]',
-            '[class*="title"]',
-            "span",
-          ];
-          for (const sel of nameSelectors) {
-            const nameEl = el.querySelector(sel);
-            if (nameEl && nameEl.innerText && nameEl.innerText.length > 2) {
-              name = nameEl.innerText.trim();
+        let name = "";
+        const nameSelectors = [
+          "[class*='name']",
+          "[class*='title']",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "strong",
+        ];
+        for (const selector of nameSelectors) {
+          const node = el.querySelector(selector);
+          if (node?.innerText) {
+            const value = normalizeName(node.innerText);
+            if (value.length > 2 && !value.includes("₺")) {
+              name = value;
               break;
             }
           }
+        }
+        if (!name) {
+          name = normalizeName(text.split(/\n|₺|TL/i)[0]);
+        }
 
-          // Fallback: get first meaningful line
-          if (!name) {
-            const lines = text
-              .split("\n")
-              .map((l) => l.trim())
-              .filter((l) => l.length > 2);
-            name =
-              lines.find((l) => !l.match(/^\d/) && !l.match(/₺|TL/i)) ||
-              lines[0] ||
-              "";
-          }
+        let image = "";
+        const imgEl = el.querySelector("img");
+        if (imgEl) {
+          image =
+            imgEl.currentSrc ||
+            imgEl.src ||
+            imgEl.getAttribute("data-src") ||
+            imgEl.getAttribute("srcset") ||
+            "";
+        }
 
-          // Get image
-          let image = "";
-          const imgEl = el.querySelector("img");
-          if (imgEl) {
-            image =
-              imgEl.src ||
-              imgEl.getAttribute("data-src") ||
-              imgEl.getAttribute("data-lazy") ||
-              "";
+        if (name.length > 2) {
+          const key = `${name.toLowerCase()}|${price}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            items.push({ market: "Sok", name, price, image });
           }
-
-          if (name && name.length > 2 && price > 0) {
-            const key = name.toLowerCase().substring(0, 30);
-            if (!seen.has(key)) {
-              seen.add(key);
-              items.push({
-                market: "Sok",
-                name: name.substring(0, 100),
-                price,
-                image,
-              });
-            }
-          }
-        } catch (e) {}
+        }
       });
 
-      return items;
+      return items.slice(0, 20);
     });
 
     console.log(`[Sok] Results:`, result?.length || 0, "items");
@@ -167,143 +148,73 @@ async function scrapeSok(product) {
 }
 
 async function scrapeCarrefour(product) {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const page = await browser.newPage();
+  const browser = await puppeteer.launch(BROWSER_OPTIONS);
+  const page = await createPage(browser);
 
   try {
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    );
-
     console.log(`[Carrefour] Searching for: ${product}`);
     await page.goto(
       `https://www.carrefoursa.com/search/?q=${encodeURIComponent(product)}`,
-      { waitUntil: "domcontentloaded", timeout: 60000 },
+      { waitUntil: "networkidle2", timeout: 60000 }
     );
 
     await delay(4000);
-    await page.waitForSelector("body");
-    await delay(2000);
-
-    // Scroll to load products
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight / 2);
-    });
-    await delay(2000);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
+    await delay(1500);
 
     const result = await page.evaluate(() => {
-      const parsePrice = (txt) => {
-        if (!txt) return null;
-        const patterns = [
-          /₺\s*([\d.,]+)/,
-          /([\d.,]+)\s*TL/i,
-          /([\d]+[.,][\d]{2})/,
-          /(\d+)[.,](\d+)/,
-        ];
-
-        for (const pattern of patterns) {
-          const m = txt.match(pattern);
-          if (m) {
-            const numStr = (m[1] || m[0]).replace(/\./g, "").replace(",", ".");
-            const val = parseFloat(numStr);
-            if (!isNaN(val) && val > 0) return val;
-          }
-        }
-        return null;
-      };
-
+      function normalizeName(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+      }
+      function readPrice(text) {
+        const match = String(text || "").match(/₺\s*([\d.,]+)|([\d]+[.,]\d{2})/);
+        if (!match) return null;
+        const raw = match[1] || match[2];
+        const parsed = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : null;
+      }
       const items = [];
       const seen = new Set();
+      document
+        .querySelectorAll(
+          'a[href*="/p/"], a[href*="/urun/"], article, [class*="product-card"], [class*="product-item"], [class*="product"]'
+        )
+        .forEach((el) => {
+          const text = normalizeName(el.innerText);
+          if (text.length < 5) return;
 
-      // Carrefour specific selectors
-      const selectors = [
-        'a[href*="/p/"]',
-        '[class*="product"]',
-        "article",
-        "[data-product-id]",
-        ".item",
-      ];
+          const price = readPrice(text);
+          if (!price || price < 1) return;
 
-      let elements = [];
-      for (const sel of selectors) {
-        const found = document.querySelectorAll(sel);
-        if (found.length > elements.length) {
-          elements = found;
-        }
-      }
-
-      elements.forEach((el) => {
-        try {
-          const text = (el.innerText || el.textContent || "").trim();
-          if (!text || text.length < 5) return;
-
-          const price = parsePrice(text);
-          if (!price || price < 0.5 || price > 10000) return;
-
-          // Get product name
           let name = "";
-          const nameSelectors = [
-            '[class*="name"]',
-            '[class*="title"]',
-            "h2",
-            "h3",
-            "h4",
-            "span",
-          ];
-          for (const sel of nameSelectors) {
-            const nameEl = el.querySelector(sel);
-            if (nameEl && nameEl.innerText && nameEl.innerText.length > 2) {
-              const txt = nameEl.innerText.trim();
-              if (!txt.match(/^\d/) && !txt.match(/₺|TL/i)) {
-                name = txt;
-                break;
-              }
-            }
+          const nameEl = el.querySelector("[class*='name'], [class*='title'], h1, h2, h3, h4, strong");
+          if (nameEl) name = normalizeName(nameEl.innerText);
+          if (!name || name.length < 3) {
+            const lines = text.split("\n").map(normalizeName).filter((line) => line.length > 3 && !line.includes("₺"));
+            name = lines[0] || "";
           }
 
-          // Fallback
-          if (!name) {
-            const lines = text
-              .split("\n")
-              .map((l) => l.trim())
-              .filter((l) => l.length > 2);
-            name =
-              lines.find((l) => !l.match(/^\d/) && !l.match(/₺|TL/i)) ||
-              lines[0] ||
-              "";
-          }
-
-          // Get image
           let image = "";
           const imgEl = el.querySelector("img");
           if (imgEl) {
             image =
+              imgEl.currentSrc ||
               imgEl.src ||
               imgEl.getAttribute("data-src") ||
               imgEl.getAttribute("data-lazy") ||
               "";
-            if (image && image.startsWith("//")) image = "https:" + image;
           }
 
-          if (name && name.length > 2 && price > 0) {
-            const key = name.toLowerCase().substring(0, 30);
+          if (name && name.length > 3) {
+            const key = `${name.toLowerCase()}|${price}`;
             if (!seen.has(key)) {
               seen.add(key);
-              items.push({
-                market: "Carrefour",
-                name: name.substring(0, 100),
-                price,
-                image,
-              });
+              items.push({ market: "Carrefour", name, price, image });
             }
           }
-        } catch (e) {}
-      });
+        });
 
-      return items.slice(0, 15);
+      return items.slice(0, 20);
     });
 
     console.log(`[Carrefour] Results:`, result?.length || 0, "items");
@@ -342,7 +253,9 @@ async function compareIngredients(ingredients) {
     const carrefourUnit = carrefourItem ? Number(carrefourItem.price) : null;
 
     const sokCost =
-      sokUnit !== null && Number.isFinite(sokUnit) ? sokUnit * quantity : null;
+      sokUnit !== null && Number.isFinite(sokUnit)
+        ? sokUnit * quantity
+        : null;
     const carrefourCost =
       carrefourUnit !== null && Number.isFinite(carrefourUnit)
         ? carrefourUnit * quantity

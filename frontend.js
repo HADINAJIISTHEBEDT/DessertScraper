@@ -1,1334 +1,575 @@
 // ============================================================
 // DESSERT CAFE MANAGER - FRONTEND JAVASCRIPT
-// Works on Netlify with serverless functions
 // ============================================================
 
-const PORTS_TO_TRY = [
-  15050, 15051, 15052, 15053, 18080, 13000, 5050, 5051, 5052, 5053, 8080, 3000,
-];
+const PORTS_TO_TRY = [5050, 5051, 5052, 5053, 8080, 3000, 5000, 7000, 8000, 13000, 13001, 13002, 15050, 15051, 18080];
 let SCRAPER_API_BASE = null;
 const AUTO_EMAIL = "5000";
 const AUTO_PASSWORD = "5000";
 const LOCAL_KEY = "desserts_offline_data_v2";
-
-// ─── Backend Configuration ─────────────────────────────────────────────────
-// For Netlify: API calls go to /.netlify/functions/api
-// For local development: tries to find local server or uses current origin
-
-// ─── Language System ─────────────────────────────────────────────────────────
+let pushToken = null;
 
 let currentLang = localStorage.getItem("app_lang") || "en";
 
 const translations = {
   en: {
-    // Login
-    loginTitle: "Login",
-    email: "Email",
-    password: "Password",
-    loginBtn: "Login / Register",
-    loginError: "Use email 5000 and password 5000",
-
-    // Header
-    appTitle: "Dessert Cafe Manager",
-
-    // Navigation
-    timerTab: "Timer",
-    marketTab: "Market Prices",
-    settingsTab: "Settings",
-
-    // Timer Tab
-    activeDesserts: "Active Desserts",
-    expiredDesserts: "Expired Desserts",
-    startBtn: "Start",
-    resetBtn: "Reset",
-    timeFinished: "Time finished for",
-
-    // Market Tab
-    marketPrices: "Market Prices",
-    dessert: "Dessert",
-    findCheapestBtn: "Find Cheapest Market",
+    loginTitle: "Login", email: "Email", password: "Password", loginBtn: "Login / Register",
+    loginError: "Use the correct email and password ", appTitle: "Dessert Cafe Manager",
+    timerTab: "Timer", marketTab: "Market Prices", settingsTab: "Settings",
+    activeDesserts: "Active Desserts", expiredDesserts: "Expired Desserts",
+    startBtn: "Start", resetBtn: "Reset", timeFinished: "Time finished for",
+    marketPrices: "Market Prices", dessert: "Dessert", findCheapestBtn: "Find Cheapest Market",
     marketHint: "Uses ingredient quantities from Settings.",
-    ingredient: "Ingredient",
-    qty: "Qty",
-    unit: "Unit",
-    cost: "Cost",
-    best: "Best",
-    totalSok: "Total Şok",
-    totalCarrefour: "Total Carrefour",
-    cheapestMarket: "Cheapest Market",
+    ingredient: "Ingredient", qty: "Qty", unit: "Unit", cost: "Cost", best: "Best",
+    totalSok: "Total Şok", totalCarrefour: "Total Carrefour", cheapestMarket: "Cheapest Market",
     searching: "Searching Şok and Carrefour, please wait…",
-    selectDessert: "Please select a dessert.",
-    addIngredientsFirst: "Please add ingredients in Settings first.",
+    selectDessert: "Please select a dessert.", addIngredientsFirst: "Please add ingredients in Settings first.",
     marketServiceError: "Market service error",
-
-    // Settings Tab
-    timerSettings: "Timer Settings",
-    days: "days",
-    hours: "hours",
-    minutes: "minutes",
-    saveBtn: "Save",
-    deleteBtn: "🗑 Delete",
-    addNewDessertBtn: "+ Add New Dessert",
-    ingredientsTitle: "Ingredients and Quantity",
-    addIngredientBtn: "+ Add Ingredient",
-
-    // Ingredient Form
-    ingredientName: "Ingredient",
-    description: "Description / Brand",
-    need: "Need",
-    perPackage: "per package:",
-    packSize: "Pack size",
-    pickFromMarket: "🛒 Pick from Market",
-    openSok: "Open Şok",
-    openCarrefour: "Open Carrefour",
-
-    // Validation
+    timerSettings: "Timer Settings", days: "days", hours: "hours", minutes: "minutes",
+    saveBtn: "Save", deleteBtn: "🗑 Delete", addNewDessertBtn: "+ Add New Dessert",
+    ingredientsTitle: "Ingredients and Quantity", addIngredientBtn: "+ Add Ingredient",
+    ingredientName: "Ingredient", description: "Description / Brand", need: "Need",
+    perPackage: "per package:", packSize: "Pack size", pickFromMarket: "🛒 Pick from Market",
+    openSok: "Open Şok", openCarrefour: "Open Carrefour",
     ingredientNameRequired: "Ingredient name is required.",
     quantityMustBeGreater: "Needed quantity must be greater than 0.",
     packageSizeMustBeGreater: "Package size must be greater than 0.",
-    ingredientSaved: "Ingredient saved.",
-    noIngredientsYet: "No ingredients yet.",
+    ingredientSaved: "Ingredient saved.", noIngredientsYet: "No ingredients yet.",
     writeIngredientFirst: "Write ingredient name first.",
-
-    // Pick Modal
-    pickItemFromMarket: "🛒 Pick Item from Market",
-    typeProductName: "Type product name and press Enter…",
-    searchBtn: "Search",
-    modalHint:
-      "The scraped name will fill the ingredient name field. You still set the quantity yourself.",
-    clearResults: "Clear Results",
-    closeBtn: "Close",
-    searchingFor: "Searching Şok and Carrefour for",
-    noResultsFound: "No results found",
-    select: "Select",
-
-    // Delete confirmation
-    deleteConfirm: "Delete",
-
-    // Add dessert prompt
-    enterDessertName: "Enter dessert name:",
-
-    // Language
-    language: "Language",
-    english: "English",
-    arabic: "العربية",
+    pickItemFromMarket: "🛒 Pick Item from Market", typeProductName: "Type product name and press Enter…",
+    searchBtn: "Search", modalHint: "The scraped name will fill the ingredient name field.",
+    clearResults: "Clear Results", closeBtn: "Close",
+    searchingFor: "Searching Şok and Carrefour for", noResultsFound: "No results found", select: "Select",
+    deleteConfirm: "Delete", enterDessertName: "Enter dessert name:",
+    quantityToSearch: "Quantity", estimatedCost: "Estimated Cost",
+    language: "Language", english: "English", arabic: "العربية",
   },
   ar: {
-    // Login
-    loginTitle: "تسجيل الدخول",
-    email: "البريد الإلكتروني",
-    password: "كلمة المرور",
-    loginBtn: "دخول / تسجيل",
-    loginError: "استخدم البريد 5000 وكلمة المرور 5000",
-
-    // Header
-    appTitle: "مدير مقهى الحلويات",
-
-    // Navigation
-    timerTab: "المؤقت",
-    marketTab: "أسعار السوق",
-    settingsTab: "الإعدادات",
-
-    // Timer Tab
-    activeDesserts: "الحلويات النشطة",
-    expiredDesserts: "الحلويات المنتهية",
-    startBtn: "بدء",
-    resetBtn: "إعادة",
-    timeFinished: "انتهى وقت",
-
-    // Market Tab
-    marketPrices: "أسعار السوق",
-    dessert: "الحلوى",
-    findCheapestBtn: "البحث عن أرخص سوق",
+    loginTitle: "تسجيل الدخول", email: "البريد الإلكتروني", password: "كلمة المرور",
+    loginBtn: "دخول / تسجيل", loginError: "استخدم البريد 5000 وكلمة المرور 5000",
+    appTitle: "مدير مقهى الحلويات", timerTab: "المؤقت", marketTab: "أسعار السوق", settingsTab: "الإعدادات",
+    activeDesserts: "الحلويات النشطة", expiredDesserts: "الحلويات المنتهية",
+    startBtn: "بدء", resetBtn: "إعادة", timeFinished: "انتهى وقت",
+    marketPrices: "أسعار السوق", dessert: "الحلوى", findCheapestBtn: "البحث عن أرخص سوق",
     marketHint: "يستخدم كميات المكونات من الإعدادات.",
-    ingredient: "المكون",
-    qty: "الكمية",
-    unit: "الوحدة",
-    cost: "التكلفة",
-    best: "الأفضل",
-    totalSok: "إجمالي شوك",
-    totalCarrefour: "إجمالي كارفور",
-    cheapestMarket: "أرخص سوق",
+    ingredient: "المكون", qty: "الكمية", unit: "الوحدة", cost: "التكلفة", best: "الأفضل",
+    totalSok: "إجمالي شوك", totalCarrefour: "إجمالي كارفور", cheapestMarket: "أرخص سوق",
     searching: "جاري البحث في شوك وكارفور، يرجى الانتظار…",
-    selectDessert: "يرجى اختيار حلوى.",
-    addIngredientsFirst: "يرجى إضافة المكونات في الإعدادات أولاً.",
+    selectDessert: "يرجى اختيار حلوى.", addIngredientsFirst: "يرجى إضافة المكونات في الإعدادات أولاً.",
     marketServiceError: "خطأ في خدمة السوق",
-
-    // Settings Tab
-    timerSettings: "إعدادات المؤقت",
-    days: "أيام",
-    hours: "ساعات",
-    minutes: "دقائق",
-    saveBtn: "حفظ",
-    deleteBtn: "🗑 حذف",
-    addNewDessertBtn: "+ إضافة حلوى جديدة",
-    ingredientsTitle: "المكونات والكمية",
-    addIngredientBtn: "+ إضافة مكون",
-
-    // Ingredient Form
-    ingredientName: "المكون",
-    description: "الوصف / العلامة التجارية",
-    need: "الكمية المطلوبة",
-    perPackage: "لكل عبوة:",
-    packSize: "حجم العبوة",
-    pickFromMarket: "🛒 اختيار من السوق",
-    openSok: "فتح شوك",
-    openCarrefour: "فتح كارفور",
-
-    // Validation
+    timerSettings: "إعدادات المؤقت", days: "أيام", hours: "ساعات", minutes: "دقائق",
+    saveBtn: "حفظ", deleteBtn: "🗑 حذف", addNewDessertBtn: "+ إضافة حلوى جديدة",
+    ingredientsTitle: "المكونات والكمية", addIngredientBtn: "+ إضافة مكون",
+    ingredientName: "المكون", description: "الوصف / العلامة التجارية", need: "الكمية المطلوبة",
+    perPackage: "لكل عبوة:", packSize: "حجم العبوة", pickFromMarket: "🛒 اختيار من السوق",
+    openSok: "فتح شوك", openCarrefour: "فتح كارفور",
     ingredientNameRequired: "اسم المكون مطلوب.",
     quantityMustBeGreater: "يجب أن تكون الكمية المطلوبة أكبر من 0.",
     packageSizeMustBeGreater: "يجب أن يكون حجم العبوة أكبر من 0.",
-    ingredientSaved: "تم حفظ المكون.",
-    noIngredientsYet: "لا توجد مكونات بعد.",
+    ingredientSaved: "تم حفظ المكون.", noIngredientsYet: "لا توجد مكونات بعد.",
     writeIngredientFirst: "اكتب اسم المكون أولاً.",
-
-    // Pick Modal
-    pickItemFromMarket: "🛒 اختيار عنصر من السوق",
-    typeProductName: "اكتب اسم المنتج واضغط Enter…",
-    searchBtn: "بحث",
-    modalHint: "سيتم ملء اسم المكون من النتائج. عليك تحديد الكمية بنفسك.",
-    clearResults: "مسح النتائج",
-    closeBtn: "إغلاق",
-    searchingFor: "البحث في شوك وكارفور عن",
-    noResultsFound: "لم يتم العثور على نتائج",
-    select: "اختيار",
-
-    // Delete confirmation
-    deleteConfirm: "حذف",
-
-    // Add dessert prompt
-    enterDessertName: "أدخل اسم الحلوى:",
-
-    // Language
-    language: "اللغة",
-    english: "English",
-    arabic: "العربية",
+    pickItemFromMarket: "🛒 اختيار عنصر من السوق", typeProductName: "اكتب اسم المنتج واضغط Enter…",
+    searchBtn: "بحث", modalHint: "سيتم ملء اسم المكون من النتائج.",
+    clearResults: "مسح النتائج", closeBtn: "إغلاق",
+    searchingFor: "البحث في شوك وكارفور عن", noResultsFound: "لم يتم العثور على نتائج", select: "اختيار",
+    deleteConfirm: "حذف", enterDessertName: "أدخل اسم الحلوى:",
+    quantityToSearch: "الكمية", estimatedCost: "التكلفة التقديرية",
+    language: "اللغة", english: "English", arabic: "العربية",
   },
 };
 
-function t(key) {
-  return translations[currentLang][key] || translations["en"][key] || key;
-}
+function t(key) { return translations[currentLang][key] || translations["en"][key] || key; }
 
 function translateUI() {
-  // Translate static elements
-  const elements = {
-    appTitle: "appTitle",
-    activeDessertsTitle: "activeDessertsTitle",
-    expiredDessertsTitle: "expiredDessertsTitle",
-    marketPricesTitle: "marketPricesTitle",
-    timerSettingsTitle: "timerSettingsTitle",
-    ingredientsTitle: "ingredientsTitle",
-    dessertLabel: "dessertLabel",
-    marketHint: "marketHint",
-    pickModalTitle: "pickModalTitle",
-    pickSearchBtn: "pickSearchBtn",
-    pickModalHint: "pickModalHint",
-    clearResultsBtn: "clearResultsBtn",
-    closeModalBtn: "closeModalBtn",
-    findPricesBtn: "findPricesBtn",
-  };
-
-  for (const [key, id] of Object.entries(elements)) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = t(key);
-  }
-
-  // Navigation buttons
-  const navTimer = document.getElementById("navTimer");
-  const navMarket = document.getElementById("navMarket");
-  const navSettings = document.getElementById("navSettings");
-  if (navTimer) navTimer.textContent = t("timerTab");
-  if (navMarket) navMarket.textContent = t("marketTab");
-  if (navSettings) navSettings.textContent = t("settingsTab");
-
-  // Login elements
-  const loginTitle = document.querySelector("#login h2");
-  const loginBtn = document.querySelector("#login button");
-  const emailInput = document.getElementById("email");
-  const passwordInput = document.getElementById("password");
-  if (loginTitle) loginTitle.textContent = t("loginTitle");
-  if (loginBtn) loginBtn.textContent = t("loginBtn");
-  if (emailInput) emailInput.placeholder = t("email");
-  if (passwordInput) passwordInput.placeholder = t("password");
-
-  // Pick modal input placeholder
-  const pickSearchInput = document.getElementById("pickSearchInput");
-  if (pickSearchInput) pickSearchInput.placeholder = t("typeProductName");
-
+  const map = { appTitle:"appTitle", activeDessertsTitle:"activeDesserts", expiredDessertsTitle:"expiredDesserts",
+    marketPricesTitle:"marketPrices", timerSettingsTitle:"timerSettings", ingredientsTitle:"ingredientsTitle",
+    dessertLabel:"dessert", marketHint:"marketHint", pickModalTitle:"pickItemFromMarket", pickSearchBtn:"searchBtn",
+    pickModalHint:"modalHint", clearResultsBtn:"clearResults", closeModalBtn:"closeBtn", findPricesBtn:"findCheapestBtn" };
+  for (const [key, id] of Object.entries(map)) { const el = document.getElementById(id); if (el) el.textContent = t(key); }
+  const n = document.getElementById("navTimer"); if (n) n.textContent = t("timerTab");
+  const m = document.getElementById("navMarket"); if (m) m.textContent = t("marketTab");
+  const s = document.getElementById("navSettings"); if (s) s.textContent = t("settingsTab");
+  const lt = document.querySelector("#login h2"); if (lt) lt.textContent = t("loginTitle");
+  const lb = document.querySelector("#login button"); if (lb) lb.textContent = t("loginBtn");
+  const e = document.getElementById("email"); if (e) e.placeholder = t("email");
+  const p = document.getElementById("password"); if (p) p.placeholder = t("password");
+  const psi = document.getElementById("pickSearchInput"); if (psi) psi.placeholder = t("typeProductName");
+  const pqi = document.getElementById("pickQuantityInput"); if (pqi) pqi.placeholder = t("quantityToSearch");
   renderLanguageSwitcher();
 }
 
 function setLanguage(lang) {
-  currentLang = lang;
-  localStorage.setItem("app_lang", lang);
+  currentLang = lang; localStorage.setItem("app_lang", lang);
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   document.documentElement.lang = lang;
-  translateUI();
-  render();
-  renderSettings();
-  renderDessertSelect();
+  translateUI(); render(); renderSettings(); renderDessertSelect();
 }
 
 function renderLanguageSwitcher() {
-  const container = document.getElementById("langSwitcher");
-  if (!container) return;
-  container.innerHTML = `
-    <select onchange="setLanguage(this.value)" class="lang-select">
-      <option value="en" ${currentLang === "en" ? "selected" : ""}>${t("english")}</option>
-      <option value="ar" ${currentLang === "ar" ? "selected" : ""}>${t("arabic")}</option>
-    </select>
-  `;
+  const c = document.getElementById("langSwitcher"); if (!c) return;
+  c.innerHTML = `<select onchange="setLanguage(this.value)" class="lang-select">
+    <option value="en" ${currentLang==="en"?"selected":""}>${t("english")}</option>
+    <option value="ar" ${currentLang==="ar"?"selected":""}>${t("arabic")}</option></select>`;
 }
-
 window.setLanguage = setLanguage;
 
-// ─── Data ────────────────────────────────────────────────────────────────────
-
 let desserts = [
-  {
-    name: "Magnolia",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "English Cake",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Cheese Cake",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Tirimasu",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Othmaliye",
-    days: 10,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Fondant",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Sweet Syrup",
-    days: 30,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Ashta",
-    days: 10,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
-  {
-    name: "Cookies",
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  },
+  { name:"Magnolia", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"English Cake", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Cheese Cake", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Tirimasu", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Othmaliye", days:10, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Fondant", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Sweet Syrup", days:30, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Ashta", days:10, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
+  { name:"Cookies", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
 ];
 
-// ─── Port Detection & API Configuration ─────────────────────────────────────
-
-let retryCount = 0;
-let serverFound = false;
+let retryCount = 0, serverFound = false;
 
 async function detectServerPort() {
   const hostname = window.location.hostname;
-  const loadingText = document.getElementById("loadingText");
-  const loadingStatus = document.getElementById("loadingStatus");
-  const retryCounter = document.getElementById("retryCounter");
-
-  // Check if running from file:// (double-clicked HTML file)
+  const ls = document.getElementById("loadingStatus"), lt = document.getElementById("loadingText"), rc = document.getElementById("retryCounter");
   if (window.location.protocol === "file:") {
-    if (loadingStatus) {
-      loadingStatus.className = "loading-status waiting";
-      loadingStatus.innerHTML =
-        'Please open <a href="http://localhost:5050" style="color:#c89b6d;font-weight:bold">http://localhost:5050</a> in browser after starting server';
-    }
-    if (loadingText)
-      loadingText.textContent = "Running from file - Start server first!";
-    if (retryCounter)
-      retryCounter.textContent = "Run start.bat to launch the server";
+    if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = 'Open <a href="http://localhost:5050" style="color:#c89b6d">http://localhost:5050</a> after starting server'; }
+    if (lt) lt.textContent = "Start server first!";
+    if (rc) rc.textContent = "Run start.bat";
     return false;
   }
-
-  // Update status
-  if (loadingStatus) {
-    loadingStatus.className = "loading-status connecting";
-    loadingStatus.textContent = "Checking connection...";
-  }
-
-  // Production check
-  const isNetlify =
-    hostname.includes("netlify.app") ||
-    hostname.includes("netlify.com") ||
-    (window.location.protocol === "https:" &&
-      hostname !== "localhost" &&
-      hostname !== "127.0.0.1");
-
-  if (isNetlify || hostname.includes("onrender")) {
-    SCRAPER_API_BASE = `${window.location.origin}`;
-    console.log(`Using cloud API: ${SCRAPER_API_BASE}`);
-    serverFound = true;
-    return true;
-  }
-
-  // Network IP access (from phone or other devices on same network)
-  const isNetworkIP =
-    hostname !== "localhost" &&
-    hostname !== "127.0.0.1" &&
-    !hostname.includes("netlify");
-  if (isNetworkIP) {
-    // Try current origin first (same host, same port)
-    try {
-      const res = await fetch(`${window.location.origin}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) {
-        SCRAPER_API_BASE = window.location.origin;
-        serverFound = true;
-        return true;
-      }
-    } catch (_) {}
-
-    // Try all ports on the same host
+  if (ls) { ls.className = "loading-status connecting"; ls.textContent = "Checking connection..."; }
+  const isCloud = hostname.includes("netlify") || hostname.includes("onrender") || (window.location.protocol === "https:" && hostname !== "localhost" && hostname !== "127.0.0.1");
+  if (isCloud) { SCRAPER_API_BASE = window.location.origin; serverFound = true; return true; }
+  const isNet = hostname !== "localhost" && hostname !== "127.0.0.1";
+  if (isNet) {
     for (const port of PORTS_TO_TRY) {
-      try {
-        const res = await fetch(`http://${hostname}:${port}/health`, {
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok) {
-          SCRAPER_API_BASE = `http://${hostname}:${port}`;
-          serverFound = true;
-          return true;
-        }
-      } catch (_) {}
+      try { const r = await fetch(`${window.location.protocol}//${hostname}:${port}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = `${window.location.protocol}//${hostname}:${port}`; serverFound = true; return true; } } catch(_) {}
     }
   }
-
-  // Localhost - try to find server
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    // Check current origin first
-    try {
-      const res = await fetch(`${window.location.origin}/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) {
-        SCRAPER_API_BASE = window.location.origin;
-        console.log(`Using current server: ${SCRAPER_API_BASE}`);
-        serverFound = true;
-        if (loadingStatus) {
-          loadingStatus.className = "loading-status connected";
-          loadingStatus.textContent = "Connected!";
-        }
-        return true;
-      }
-    } catch (_) {}
-
-    // Try other ports
+    try { const r = await fetch(`${window.location.origin}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = window.location.origin; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent="Connected!";} return true; } } catch(_) {}
     for (const port of PORTS_TO_TRY) {
-      try {
-        const res = await fetch(`http://localhost:${port}/health`, {
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok) {
-          SCRAPER_API_BASE = `http://localhost:${port}`;
-          console.log(`Connected to server on port ${port}`);
-          serverFound = true;
-          if (loadingStatus) {
-            loadingStatus.className = "loading-status connected";
-            loadingStatus.textContent = `Connected on port ${port}!`;
-          }
-          return true;
-        }
-      } catch (_) {}
+      try { const r = await fetch(`${window.location.protocol}//localhost:${port}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = `${window.location.protocol}//localhost:${port}`; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent=`Port ${port}`;} return true; } } catch(_) {}
     }
   }
-
-  // Server not found - show waiting state
   retryCount++;
-  if (loadingStatus) {
-    loadingStatus.className = "loading-status waiting";
-    loadingStatus.innerHTML =
-      "❌ Server not running - Run <b>start.bat</b> to start the server";
-  }
-  if (loadingText) loadingText.textContent = "Server not found";
-
+  if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = "Server not running - Run <b>start.bat</b>"; }
+  if (lt) lt.textContent = "Server not found";
   return false;
 }
 
-// ─── Persistence ────────────────────────────────────────────────────────────
+function loadLocal() { const r = localStorage.getItem(LOCAL_KEY); if (!r) return; try { const p = JSON.parse(r); if (Array.isArray(p)) desserts = p.map(d => ({...d, ingredients:(Array.isArray(d.ingredients)?d.ingredients:[]).map(normalizeIngredient)})); } catch(_) {} }
+function saveLocal() { localStorage.setItem(LOCAL_KEY, JSON.stringify(desserts)); }
 
-function loadLocal() {
-  const raw = localStorage.getItem(LOCAL_KEY);
-  if (!raw) return;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      desserts = parsed.map((d) => ({
-        ...d,
-        ingredients: (Array.isArray(d.ingredients) ? d.ingredients : []).map(
-          normalizeIngredient,
-        ),
-      }));
-    }
-  } catch (_) {}
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
 }
 
-function saveLocal() {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(desserts));
+async function getPushPublicKey() {
+  const res = await fetch(`${SCRAPER_API_BASE}/push-public-key`);
+  if (!res.ok) throw new Error("Failed to load push public key");
+  const data = await res.json();
+  return data.publicKey;
 }
 
-// ─── Boot ────────────────────────────────────────────────────────────────────
+async function ensurePushSubscription() {
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("Push notifications are not supported on this device");
+  }
+
+  const [{ initializeApp }, { getMessaging, getToken }] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging.js"),
+  ]);
+
+  const firebaseApp = initializeApp({
+    apiKey: "AIzaSyDQSPs6oly79c18Nyi-SP_WJlp52l9Ja7g",
+    authDomain: "hookahtalya-b865f.firebaseapp.com",
+    projectId: "hookahtalya-b865f",
+    storageBucket: "hookahtalya-b865f.firebasestorage.app",
+    messagingSenderId: "635656922703",
+    appId: "1:635656922703:web:a27e2c407484ed641b2c3a",
+  });
+
+  const publicKey = await getPushPublicKey();
+  const registration = await navigator.serviceWorker.register("/sw.js");
+  const messaging = getMessaging(firebaseApp);
+  pushToken = await getToken(messaging, {
+    vapidKey: publicKey,
+    serviceWorkerRegistration: registration,
+  });
+
+  if (!pushToken) {
+    throw new Error("Failed to get FCM token");
+  }
+
+  return pushToken;
+}
+
+async function syncTimerPush(index) {
+  if (!notificationsEnabled || Notification.permission !== "granted" || !SCRAPER_API_BASE) return;
+  if (!pushToken) await ensurePushSubscription();
+
+  const dessert = desserts[index];
+  if (!dessert) return;
+
+  const tag = `dessert-${dessert.name}`;
+
+  if (!dessert.startTime || dessert.finished) {
+    await fetch(`${SCRAPER_API_BASE}/push-cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: pushToken, tag }),
+    });
+    return;
+  }
+
+  const sendAt = dessert.startTime + dessert.days * 86400000 + dessert.hours * 3600000 + dessert.minutes * 60000;
+  await fetch(`${SCRAPER_API_BASE}/push-schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token: pushToken,
+      sendAt,
+      payload: {
+        title: `${t("timeFinished")} ${dessert.name}`,
+        body: `Your ${dessert.name} dessert timer has finished!`,
+        tag,
+        url: window.location.href,
+      },
+    }),
+  });
+}
+
+async function cancelTimerPush(index) {
+  if (!pushToken || !SCRAPER_API_BASE) return;
+  const dessert = desserts[index];
+  if (!dessert) return;
+
+  await fetch(`${SCRAPER_API_BASE}/push-cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token: pushToken,
+      tag: `dessert-${dessert.name}`,
+    }),
+  });
+}
 
 window.addEventListener("DOMContentLoaded", async () => {
-  // Load language preference
   currentLang = localStorage.getItem("app_lang") || "en";
   document.documentElement.dir = currentLang === "ar" ? "rtl" : "ltr";
   document.documentElement.lang = currentLang;
-
-  // Show connecting status
-  const loadingText = document.getElementById("loadingText");
-  const loadingStatus = document.getElementById("loadingStatus");
-  if (loadingText) {
-    loadingText.textContent =
-      currentLang === "ar"
-        ? "جاري الاتصال بالخادم..."
-        : "Connecting to server...";
-  }
-
-  // Auto-detect server (will keep retrying if not found)
+  const lt = document.getElementById("loadingText");
+  if (lt) lt.textContent = currentLang === "ar" ? "جاري الاتصال..." : "Connecting...";
   const connected = await detectServerPort();
-
-  // Only proceed if server was found
-  if (!connected || !serverFound) {
-    return; // Will keep retrying in detectServerPort
-  }
-
-  loadLocal();
-  renderLanguageSwitcher();
-  translateUI();
-
-  const emailEl = document.getElementById("email");
-  const passwordEl = document.getElementById("password");
-  const loginBtn = document.querySelector("#login button");
+  if (!connected || !serverFound) return;
+  loadLocal(); renderLanguageSwitcher(); translateUI();
+  const emailEl = document.getElementById("email"), passwordEl = document.getElementById("password");
   if (emailEl) emailEl.value = AUTO_EMAIL;
   if (passwordEl) passwordEl.value = AUTO_PASSWORD;
-  if (loginBtn) {
-    loginBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      window.login();
-    });
-  }
-  if (emailEl)
-    emailEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") window.login();
-    });
-  if (passwordEl)
-    passwordEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") window.login();
-    });
-
-  // Hide loading screen
-  const loadingScreen = document.getElementById("loadingScreen");
-  if (loadingScreen) loadingScreen.classList.add("hidden");
+  const loginBtn = document.querySelector("#login button");
+  if (loginBtn) loginBtn.addEventListener("click", (e) => { e.preventDefault(); window.login(); });
+  if (emailEl) emailEl.addEventListener("keydown", (e) => { if (e.key === "Enter") window.login(); });
+  if (passwordEl) passwordEl.addEventListener("keydown", (e) => { if (e.key === "Enter") window.login(); });
+  const ls = document.getElementById("loadingScreen");
+  if (ls) ls.classList.add("hidden");
 });
 
 function normalizeIngredient(ing) {
-  return {
-    name: String(ing?.name || ""),
-    quantity: Number.isFinite(Number(ing?.quantity)) ? Number(ing.quantity) : 1,
-    unit: String(ing?.unit || "piece"),
-    description: String(ing?.description || ""),
-    packageSize: Number.isFinite(Number(ing?.packageSize))
-      ? Number(ing.packageSize)
-      : 1,
-    packageUnit: String(ing?.packageUnit || "piece"),
-  };
+  return { name:String(ing?.name||""), quantity:Number.isFinite(Number(ing?.quantity))?Number(ing.quantity):1, unit:String(ing?.unit||"piece"),
+    description:String(ing?.description||""), packageSize:Number.isFinite(Number(ing?.packageSize))?Number(ing.packageSize):1, packageUnit:String(ing?.packageUnit||"piece") };
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
-
-window.login = function () {
-  const email = (document.getElementById("email").value || "").trim();
-  const password = document.getElementById("password").value || "";
-  if (email !== AUTO_EMAIL || password !== AUTO_PASSWORD) {
-    alert(t("loginError"));
-    return;
-  }
+window.login = function() {
+  const email = (document.getElementById("email").value||"").trim(), password = document.getElementById("password").value||"";
+  if (email !== AUTO_EMAIL || password !== AUTO_PASSWORD) { alert(t("loginError")); return; }
   showApp();
 };
 
 function showApp() {
   document.getElementById("login").style.display = "none";
   document.getElementById("app").style.display = "block";
-  render();
-  renderSettings();
-  renderDessertSelect();
-  switchTab("timer");
-
-  // Auto-initialize notifications (requests permission once, then remembers)
+  render(); renderSettings(); renderDessertSelect(); switchTab("timer");
   initNotifications();
+  if (notificationsEnabled && Notification.permission === "granted") ensurePushSubscription().catch(()=>{});
 }
 
-// ─── Tabs ────────────────────────────────────────────────────────────────────
+function triggerDessertFinishedAlert(dessert) {
+  if (!dessert || dessert.notified || dessert.notifyInFlight) return;
 
-window.switchTab = function (tabName) {
-  ["timer", "market", "settings"].forEach((tab) => {
-    const el = document.getElementById(`tab-${tab}`);
-    if (el) el.classList.toggle("hidden", tab !== tabName);
+  dessert.notifyInFlight = true;
+  showChromeNotification(
+    `${t("timeFinished")} ${dessert.name}`,
+    `Your ${dessert.name} dessert timer has finished!`,
+    `dessert-${dessert.name}`,
+  ).then((sent) => {
+    dessert.notifyInFlight = false;
+    if (sent) {
+      dessert.notified = true;
+      saveLocal();
+    }
+  }).catch(() => {
+    dessert.notifyInFlight = false;
   });
+}
+
+window.switchTab = function(tabName) {
+  ["timer","market","settings"].forEach(tab => { const el = document.getElementById(`tab-${tab}`); if (el) el.classList.toggle("hidden", tab !== tabName); });
 };
 
-// ─── Timer ───────────────────────────────────────────────────────────────────
-
 function render() {
-  const list = document.getElementById("list");
-  const expired = document.getElementById("expired");
-  list.innerHTML = "";
-  expired.innerHTML = "";
-
+  const list = document.getElementById("list"), expired = document.getElementById("expired");
+  list.innerHTML = ""; expired.innerHTML = "";
   const now = Date.now();
   desserts.forEach((d, i) => {
     let remaining = 0;
-    if (d.startTime) {
-      remaining =
-        d.days * 86400000 +
-        d.hours * 3600000 +
-        d.minutes * 60000 -
-        (now - d.startTime);
-    }
-
+    if (d.startTime) remaining = d.days*86400000 + d.hours*3600000 + d.minutes*60000 - (now - d.startTime);
     if (d.startTime && remaining <= 0 && !d.finished) {
       d.finished = true;
-
-      // Play alarm sound
-      const alarm = document.getElementById("alarm");
-      if (alarm) {
-        alarm.play().catch(() => {}); // Ignore autoplay errors
-      }
-
-      // Send Chrome notification (appears like a broadcast)
-      showChromeNotification(
-        `🍰 ${t("timeFinished")} ${d.name}`,
-        `Your ${d.name} dessert timer has finished!`,
-      );
-
+      const alarm = document.getElementById("alarm"); if (alarm) alarm.play().catch(()=>{});
       saveLocal();
     }
-
-    const div = document.createElement("div");
-    div.className = "row";
-    div.innerHTML = `
-      <span>${d.name}</span>
-      <button onclick="start(${i})">${t("startBtn")}</button>
-      <button onclick="reset(${i})">${t("resetBtn")}</button>
-      <span>${d.startTime ? formatTime(Math.max(0, remaining)) : ""}</span>
-    `;
-    if (d.finished || (d.startTime && remaining <= 0)) expired.appendChild(div);
-    else list.appendChild(div);
+    if (d.startTime && remaining <= 0) triggerDessertFinishedAlert(d);
+    const div = document.createElement("div"); div.className = "row";
+    div.innerHTML = `<span>${d.name}</span><button onclick="start(${i})">${t("startBtn")}</button><button onclick="reset(${i})">${t("resetBtn")}</button><span>${d.startTime ? formatTime(Math.max(0,remaining)) : ""}</span>`;
+    if (d.finished || (d.startTime && remaining <= 0)) expired.appendChild(div); else list.appendChild(div);
   });
 }
 
-window.start = function (i) {
-  desserts[i].startTime = Date.now();
-  desserts[i].finished = false;
-  render();
-  saveLocal();
-};
-
-window.reset = function (i) {
-  desserts[i].startTime = null;
-  desserts[i].finished = false;
-  render();
-  saveLocal();
-};
-
-function formatTime(ms) {
-  const totalSec = Math.floor(ms / 1000);
-  const d = Math.floor(totalSec / 86400);
-  const h = Math.floor((totalSec % 86400) / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${d}d ${h}h ${m}m ${s}s`;
-}
+window.start = function(i) { desserts[i].startTime = Date.now(); desserts[i].finished = false; desserts[i].notified = false; desserts[i].notifyInFlight = false; render(); saveLocal(); syncTimerPush(i).catch(()=>{}); };
+window.reset = function(i) { desserts[i].startTime = null; desserts[i].finished = false; desserts[i].notified = false; desserts[i].notifyInFlight = false; render(); saveLocal(); syncTimerPush(i).catch(()=>{}); };
+function formatTime(ms) { const s = Math.floor(ms/1000), d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60), sec = s%60; return `${d}d ${h}h ${m}m ${sec}s`; }
 
 setInterval(render, 1000);
 
-// ─── Settings ────────────────────────────────────────────────────────────────
-
 function renderSettings() {
-  const panel = document.getElementById("settings");
-  panel.innerHTML = "";
-
+  const panel = document.getElementById("settings"); panel.innerHTML = "";
   desserts.forEach((d, i) => {
-    const row = document.createElement("div");
-    row.className = "settings-row";
-    row.innerHTML = `
-      <span class="settings-name">${d.name}</span>
-      <input type="number" value="${d.days}" min="0" id="days_${i}"> ${t("days")}
-      <input type="number" value="${d.hours}" min="0" max="23" id="hours_${i}"> ${t("hours")}
-      <input type="number" value="${d.minutes}" min="0" max="59" id="min_${i}"> ${t("minutes")}
-      <button onclick="saveAdmin(${i})">${t("saveBtn")}</button>
-      <button class="btn-delete" onclick="deleteDessert(${i})">${t("deleteBtn")}</button>
-    `;
+    const row = document.createElement("div"); row.className = "settings-row";
+    row.innerHTML = `<span class="settings-name">${d.name}</span><input type="number" value="${d.days}" min="0" id="days_${i}"> ${t("days")}<input type="number" value="${d.hours}" min="0" max="23" id="hours_${i}"> ${t("hours")}<input type="number" value="${d.minutes}" min="0" max="59" id="min_${i}"> ${t("minutes")}<button onclick="saveAdmin(${i})">${t("saveBtn")}</button><button class="btn-delete" onclick="deleteDessert(${i})">${t("deleteBtn")}</button>`;
     panel.appendChild(row);
   });
-
-  const addBtn = document.createElement("button");
-  addBtn.textContent = t("addNewDessertBtn");
-  addBtn.className = "btn-add-dessert";
-  addBtn.onclick = addNewDessert;
-  panel.appendChild(addBtn);
-
+  const addBtn = document.createElement("button"); addBtn.textContent = t("addNewDessertBtn"); addBtn.className = "btn-add-dessert"; addBtn.onclick = addNewDessert; panel.appendChild(addBtn);
   renderIngredientsSettings();
 }
 
-window.saveAdmin = function (i) {
-  const d = parseInt(document.getElementById(`days_${i}`).value, 10) || 0;
-  const h = parseInt(document.getElementById(`hours_${i}`).value, 10) || 0;
-  const m = parseInt(document.getElementById(`min_${i}`).value, 10) || 0;
-  desserts[i].days = Math.max(0, d);
-  desserts[i].hours = Math.max(0, Math.min(23, h));
-  desserts[i].minutes = Math.max(0, Math.min(59, m));
-  saveLocal();
-  render();
+window.saveAdmin = function(i) {
+  desserts[i].days = Math.max(0, parseInt(document.getElementById(`days_${i}`).value,10)||0);
+  desserts[i].hours = Math.max(0, Math.min(23, parseInt(document.getElementById(`hours_${i}`).value,10)||0));
+  desserts[i].minutes = Math.max(0, Math.min(59, parseInt(document.getElementById(`min_${i}`).value,10)||0));
+  saveLocal(); render();
 };
 
-window.deleteDessert = function (index) {
-  if (!confirm(`${t("deleteConfirm")} "${desserts[index].name}"?`)) return;
-  desserts.splice(index, 1);
-  saveLocal();
-  render();
-  renderSettings();
-  renderDessertSelect();
-};
-
-window.addNewDessert = function () {
-  const name = prompt(t("enterDessertName"));
-  if (!name || !name.trim()) return;
-  desserts.push({
-    name: name.trim(),
-    days: 5,
-    hours: 0,
-    minutes: 0,
-    startTime: null,
-    finished: false,
-    ingredients: [],
-  });
-  saveLocal();
-  render();
-  renderSettings();
-  renderDessertSelect();
-};
-
-// ─── Pick from Market Modal ──────────────────────────────────────────────────
+window.deleteDessert = function(index) { if (!confirm(`${t("deleteConfirm")} "${desserts[index].name}"?`)) return; desserts.splice(index,1); saveLocal(); render(); renderSettings(); renderDessertSelect(); };
+window.addNewDessert = function() { const name = prompt(t("enterDessertName")); if (!name||!name.trim()) return; desserts.push({name:name.trim(),days:5,hours:0,minutes:0,startTime:null,finished:false,ingredients:[]}); saveLocal(); render(); renderSettings(); renderDessertSelect(); };
 
 let _pickTarget = null;
-
-window.openPickModal = async function (dessertIndex, ingredientIndex) {
-  _pickTarget = { dessertIndex, ingredientIndex };
-  const nameEl = document.getElementById(
-    `ing_name_${dessertIndex}_${ingredientIndex}`,
-  );
-  const existing = (nameEl?.value || "").trim();
-
-  const modal = document.getElementById("pickModal");
-  const searchInput = document.getElementById("pickSearchInput");
-  const resultsBox = document.getElementById("pickResults");
-  searchInput.value = existing;
-  resultsBox.innerHTML = "";
-  modal.classList.remove("hidden");
-
-  if (existing) await runPickSearch(existing);
+window.openPickModal = async function(dessertIndex, ingredientIndex) {
+  _pickTarget = {dessertIndex, ingredientIndex};
+  const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
+  const qtyEl = document.getElementById(`ing_qty_${dessertIndex}_${ingredientIndex}`);
+  const modal = document.getElementById("pickModal"), searchInput = document.getElementById("pickSearchInput"), qtyInput = document.getElementById("pickQuantityInput"), resultsBox = document.getElementById("pickResults");
+  searchInput.value = (nameEl?.value||"").trim(); resultsBox.innerHTML = ""; modal.classList.remove("hidden");
+  if (qtyInput) qtyInput.value = qtyEl?.value || "1";
+  if (searchInput.value) await runPickSearch(searchInput.value);
 };
+window.closePickModal = function() { document.getElementById("pickModal").classList.add("hidden"); _pickTarget = null; };
+window.clearPickResults = function() { document.getElementById("pickResults").innerHTML = ""; };
+window.pickSearchKeydown = function(e) { if (e.key === "Enter") runPickSearch(document.getElementById("pickSearchInput").value.trim()); };
 
-window.closePickModal = function () {
-  document.getElementById("pickModal").classList.add("hidden");
-  _pickTarget = null;
-};
-
-window.clearPickResults = function () {
-  document.getElementById("pickResults").innerHTML = "";
-};
-
-window.pickSearchKeydown = function (e) {
-  if (e.key === "Enter")
-    runPickSearch(document.getElementById("pickSearchInput").value.trim());
-};
-
-window.runPickSearch = async function (query) {
+window.runPickSearch = async function(query) {
   if (!query) return;
   if (!SCRAPER_API_BASE) await detectServerPort();
+  const quantity = Math.max(0.01, Number(document.getElementById("pickQuantityInput")?.value || "1"));
   const resultsBox = document.getElementById("pickResults");
   resultsBox.innerHTML = `<p class="pick-loading">🔍 ${t("searchingFor")} "<strong>${query}</strong>"…</p>`;
-
-  const url = `${SCRAPER_API_BASE}/search-all`;
-  console.log(`Fetching: ${url}`);
-
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product: query }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`API error ${res.status}:`, errorText);
-      throw new Error(`API error ${res.status}: ${errorText}`);
-    }
-
-    const data = await res.json();
-    console.log(`Search results:`, data);
-    renderPickResults(data);
-  } catch (err) {
-    console.error("Search error:", err);
-    resultsBox.innerHTML = `<p class="pick-error">Error: ${err.message}<br><small>API URL: ${url}</small></p>`;
-  }
+    const res = await fetch(`${SCRAPER_API_BASE}/search-all`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({product:query}) });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    renderPickResults(await res.json(), quantity);
+  } catch(err) { resultsBox.innerHTML = `<p class="pick-error">Error: ${err.message}</p>`; }
 };
 
-function renderPickResults(data) {
+function renderPickResults(data, quantity = 1) {
   const resultsBox = document.getElementById("pickResults");
-  const markets = [
-    { key: "sok", label: "Şok", color: "#e67e22" },
-    { key: "carrefour", label: "Carrefour", color: "#2980b9" },
-  ];
-
+  const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"carrefour",label:"Carrefour",color:"#2980b9"}];
   let html = '<div class="pick-markets-container">';
-
-  markets.forEach(({ key, label, color }) => {
+  markets.forEach(({key,label,color}) => {
     const items = data[key];
-    html += `
-      <div class="pick-market-section">
-        <div class="pick-market-header" style="background: ${color}">
-          <span>${label}</span>
-        </div>
-        <div class="pick-market-items">
-    `;
-
-    if (!items || !items.length) {
-      html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
-    } else {
-      items.forEach((item, idx) => {
-        const imgHtml = item.image
-          ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`
-          : "<span>📦</span>";
-        const escapedName = escapeAttr(item.name);
-        const displayName = escapeText(item.name);
-        html += `
-          <div class="pick-product-card">
-            <div class="pick-product-img">
-              ${imgHtml}
-            </div>
-            <div class="pick-product-info">
-              <div class="pick-product-name">${displayName}</div>
-              <div class="pick-product-price">${formatTryPrice(item.price)}</div>
-            </div>
-            <button class="pick-select-btn" data-name="${escapedName}">${t("select")}</button>
-          </div>
-        `;
-      });
-    }
-
-    html += `
-        </div>
-      </div>
-    `;
-  });
-
-  html += "</div>";
-  resultsBox.innerHTML = html;
-
-  resultsBox.querySelectorAll(".pick-select-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      applyPickedItem(btn.dataset.name);
+    html += `<div class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label}</span></div><div class="pick-market-items">`;
+    if (!items||!items.length) html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
+    else items.forEach(item => {
+      const img = item.image ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` : "<span>📦</span>";
+      const estimated = Number.isFinite(Number(item.price)) ? formatTryPrice(Number(item.price) * quantity) : "-";
+      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")}: ${estimated}</div></div><button class="pick-select-btn" data-name="${escapeAttr(item.name)}">${t("select")}</button></div>`;
     });
+    html += `</div></div>`;
   });
+  html += "</div>"; resultsBox.innerHTML = html;
+  resultsBox.querySelectorAll(".pick-select-btn").forEach(btn => { btn.addEventListener("click", () => applyPickedItem(btn.dataset.name)); });
 }
 
-function escapeAttr(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeText(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-window.applyPickedItem = function (name) {
+function escapeAttr(s) { return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function escapeText(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+window.applyPickedItem = function(name) {
   if (!_pickTarget) return;
-  const { dessertIndex, ingredientIndex } = _pickTarget;
-  const nameEl = document.getElementById(
-    `ing_name_${dessertIndex}_${ingredientIndex}`,
-  );
-  if (nameEl) nameEl.value = name;
+  const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const qtyInput = document.getElementById("pickQuantityInput");
+  if (el) el.value = name;
+  if (qtyEl && qtyInput && qtyInput.value) qtyEl.value = qtyInput.value;
   closePickModal();
 };
 
-// ─── Ingredients Settings ────────────────────────────────────────────────────
-
 function renderIngredientsSettings() {
-  const panel = document.getElementById("ingredientsSettings");
-  panel.innerHTML = "";
-
-  desserts.forEach((dessert, dessertIndex) => {
-    const wrapper = document.createElement("div");
-    wrapper.className = "panel";
-    wrapper.innerHTML = `
-      <div class="ing-header">
-        <h3>${dessert.name}</h3>
-        <div class="ing-header-btns">
-          <button onclick="addIngredient(${dessertIndex})">${t("addIngredientBtn")}</button>
-        </div>
-      </div>
-      <div id="ingredients_${dessertIndex}" class="ingredients-list"></div>
-    `;
+  const panel = document.getElementById("ingredientsSettings"); panel.innerHTML = "";
+  desserts.forEach((dessert, di) => {
+    const wrapper = document.createElement("div"); wrapper.className = "panel";
+    wrapper.innerHTML = `<div class="ing-header"><h3>${dessert.name}</h3><div class="ing-header-btns"><button onclick="addIngredient(${di})">${t("addIngredientBtn")}</button></div></div><div id="ingredients_${di}" class="ingredients-list"></div>`;
     panel.appendChild(wrapper);
-
-    const list = wrapper.querySelector(`#ingredients_${dessertIndex}`);
-    const ingredients = Array.isArray(dessert.ingredients)
-      ? dessert.ingredients
-      : [];
-    if (!ingredients.length) {
-      const empty = document.createElement("div");
-      empty.className = "no-ingredients";
-      empty.textContent = t("noIngredientsYet");
-      list.appendChild(empty);
-      return;
-    }
-    ingredients.forEach((ing, ingredientIndex) => {
-      const row = document.createElement("div");
-      row.className = "ingredient-row";
-      const safe = normalizeIngredient(ing);
-      row.innerHTML = `
-        <input type="text" id="ing_name_${dessertIndex}_${ingredientIndex}" placeholder="${t("ingredientName")}" value="${safe.name}">
-        <input type="text" id="ing_desc_${dessertIndex}_${ingredientIndex}" placeholder="${t("description")}" value="${safe.description}">
-        <input type="number" step="0.01" min="0.01" id="ing_qty_${dessertIndex}_${ingredientIndex}" placeholder="${t("need")}" value="${safe.quantity}">
-        <select id="ing_unit_${dessertIndex}_${ingredientIndex}">
-          ${renderUnitOptions(safe.unit)}
-        </select>
-        <span>${t("perPackage")}</span>
-        <input type="number" step="0.01" min="0.01" id="ing_pack_${dessertIndex}_${ingredientIndex}" placeholder="${t("packSize")}" value="${safe.packageSize}">
-        <select id="ing_pack_unit_${dessertIndex}_${ingredientIndex}">
-          ${renderUnitOptions(safe.packageUnit)}
-        </select>
-        <button class="btn-pick" onclick="openPickModal(${dessertIndex}, ${ingredientIndex})">${t("pickFromMarket")}</button>
-        <button onclick="saveIngredient(${dessertIndex}, ${ingredientIndex})">${t("saveBtn")}</button>
-        <button onclick="openMarketLink('sok', ${dessertIndex}, ${ingredientIndex})">${t("openSok")}</button>
-        <button onclick="openMarketLink('carrefour', ${dessertIndex}, ${ingredientIndex})">${t("openCarrefour")}</button>
-        <button class="btn-delete" onclick="removeIngredient(${dessertIndex}, ${ingredientIndex})">${t("deleteBtn")}</button>
-      `;
+    const list = wrapper.querySelector(`#ingredients_${di}`);
+    const ings = Array.isArray(dessert.ingredients) ? dessert.ingredients : [];
+    if (!ings.length) { const empty = document.createElement("div"); empty.className = "no-ingredients"; empty.textContent = t("noIngredientsYet"); list.appendChild(empty); return; }
+    ings.forEach((ing, ii) => {
+      const s = normalizeIngredient(ing), row = document.createElement("div"); row.className = "ingredient-row";
+      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${s.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${s.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${s.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(s.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${s.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(s.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button><button onclick="openMarketLink('sok',${di},${ii})">${t("openSok")}</button><button onclick="openMarketLink('carrefour',${di},${ii})">${t("openCarrefour")}</button><button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>`;
       list.appendChild(row);
     });
   });
 }
 
-window.addIngredient = function (dessertIndex) {
-  if (!Array.isArray(desserts[dessertIndex].ingredients))
-    desserts[dessertIndex].ingredients = [];
-  desserts[dessertIndex].ingredients.push({
-    name: "",
-    quantity: 1,
-    unit: "piece",
-    description: "",
-    packageSize: 1,
-    packageUnit: "piece",
-  });
-  saveLocal();
-  renderSettings();
-};
+window.addIngredient = function(di) { if (!Array.isArray(desserts[di].ingredients)) desserts[di].ingredients = []; desserts[di].ingredients.push({name:"",quantity:1,unit:"piece",description:"",packageSize:1,packageUnit:"piece"}); saveLocal(); renderSettings(); };
 
-window.saveIngredient = function (dessertIndex, ingredientIndex) {
-  const nameEl = document.getElementById(
-    `ing_name_${dessertIndex}_${ingredientIndex}`,
-  );
-  const descEl = document.getElementById(
-    `ing_desc_${dessertIndex}_${ingredientIndex}`,
-  );
-  const qtyEl = document.getElementById(
-    `ing_qty_${dessertIndex}_${ingredientIndex}`,
-  );
-  const unitEl = document.getElementById(
-    `ing_unit_${dessertIndex}_${ingredientIndex}`,
-  );
-  const packEl = document.getElementById(
-    `ing_pack_${dessertIndex}_${ingredientIndex}`,
-  );
-  const packUnitEl = document.getElementById(
-    `ing_pack_unit_${dessertIndex}_${ingredientIndex}`,
-  );
-
-  if (!nameEl || !qtyEl || !unitEl || !packEl || !packUnitEl) {
-    alert("Ingredient inputs not found. Please reopen Settings tab.");
-    return;
-  }
-
-  const name = (nameEl.value || "").trim();
-  const description = (descEl?.value || "").trim();
-  const quantity = parseFloat(qtyEl.value || "0");
-  const unit = unitEl.value || "piece";
-  const packageSize = parseFloat(packEl.value || "0");
-  const packageUnit = packUnitEl.value || "piece";
-
+window.saveIngredient = function(di, ii) {
+  const nameEl = document.getElementById(`ing_name_${di}_${ii}`), descEl = document.getElementById(`ing_desc_${di}_${ii}`), qtyEl = document.getElementById(`ing_qty_${di}_${ii}`), unitEl = document.getElementById(`ing_unit_${di}_${ii}`), packEl = document.getElementById(`ing_pack_${di}_${ii}`), packUnitEl = document.getElementById(`ing_pack_unit_${di}_${ii}`);
+  if (!nameEl||!qtyEl||!unitEl||!packEl||!packUnitEl) { alert("Reopen Settings tab."); return; }
+  const name = (nameEl.value||"").trim(), description = (descEl?.value||"").trim(), quantity = parseFloat(qtyEl.value||"0"), unit = unitEl.value||"piece", packageSize = parseFloat(packEl.value||"0"), packageUnit = packUnitEl.value||"piece";
   if (!name) return alert(t("ingredientNameRequired"));
-  if (!Number.isFinite(quantity) || quantity <= 0)
-    return alert(t("quantityMustBeGreater"));
-  if (!Number.isFinite(packageSize) || packageSize <= 0)
-    return alert(t("packageSizeMustBeGreater"));
-
-  desserts[dessertIndex].ingredients[ingredientIndex] = {
-    name,
-    description,
-    quantity,
-    unit,
-    packageSize,
-    packageUnit,
-  };
-  saveLocal();
-  alert(t("ingredientSaved"));
-  renderSettings();
-  renderDessertSelect();
+  if (!Number.isFinite(quantity)||quantity<=0) return alert(t("quantityMustBeGreater"));
+  if (!Number.isFinite(packageSize)||packageSize<=0) return alert(t("packageSizeMustBeGreater"));
+  desserts[di].ingredients[ii] = {name,description,quantity,unit,packageSize,packageUnit};
+  saveLocal(); alert(t("ingredientSaved")); renderSettings(); renderDessertSelect();
 };
 
-window.removeIngredient = function (dessertIndex, ingredientIndex) {
-  desserts[dessertIndex].ingredients.splice(ingredientIndex, 1);
-  saveLocal();
-  renderSettings();
-  renderDessertSelect();
-};
+window.removeIngredient = function(di,ii) { desserts[di].ingredients.splice(ii,1); saveLocal(); renderSettings(); renderDessertSelect(); };
 
-// ─── Market Tab ──────────────────────────────────────────────────────────────
+function renderDessertSelect() { const select = document.getElementById("dessertSelect"); if (!select) return; select.innerHTML = ""; desserts.forEach((d,i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = d.name; select.appendChild(o); }); }
 
-function renderDessertSelect() {
-  const select = document.getElementById("dessertSelect");
-  if (!select) return;
-  select.innerHTML = "";
-  desserts.forEach((dessert, i) => {
-    const option = document.createElement("option");
-    option.value = String(i);
-    option.textContent = dessert.name;
-    select.appendChild(option);
-  });
-}
-
-window.findCheapestForSelectedDessert = async function () {
+window.findCheapestForSelectedDessert = async function() {
   if (!SCRAPER_API_BASE) await detectServerPort();
-  const select = document.getElementById("dessertSelect");
-  const resultBox = document.getElementById("marketResult");
-  const selectedIndex = Number(select?.value ?? -1);
-  const dessert = desserts[selectedIndex];
+  const select = document.getElementById("dessertSelect"), resultBox = document.getElementById("marketResult"), idx = Number(select?.value??-1), dessert = desserts[idx];
   if (!dessert) return (resultBox.innerHTML = `<p>${t("selectDessert")}</p>`);
-
-  const ingredients = (dessert.ingredients || [])
-    .map((raw) => {
-      const ing = normalizeIngredient(raw);
-      const effectiveQuantity = calculateEffectiveQuantity(
-        ing.quantity,
-        ing.unit,
-        ing.packageSize,
-        ing.packageUnit,
-      );
-      return {
-        name: [ing.name, ing.description].filter(Boolean).join(" "),
-        quantity: effectiveQuantity,
-        displayQuantity: `${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})`,
-      };
-    })
-    .filter((ing) => ing.name && ing.quantity > 0);
-
-  if (!ingredients.length) {
-    resultBox.innerHTML = `<p>${t("addIngredientsFirst")}</p>`;
-    return;
-  }
-
-  const url = `${SCRAPER_API_BASE}/compare`;
-  console.log(`Comparing prices at: ${url}`, ingredients);
+  const ingredients = (dessert.ingredients||[]).map(raw => { const ing = normalizeIngredient(raw); return { name:[ing.name,ing.description].filter(Boolean).join(" "), quantity:calculateEffectiveQuantity(ing.quantity,ing.unit,ing.packageSize,ing.packageUnit), displayQuantity:`${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})` }; }).filter(ing => ing.name && ing.quantity > 0);
+  if (!ingredients.length) { resultBox.innerHTML = `<p>${t("addIngredientsFirst")}</p>`; return; }
   resultBox.innerHTML = `<p>${t("searching")}</p>`;
-
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ingredients }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`API error ${response.status}:`, errorText);
-      throw new Error(`API error ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log(`Compare results:`, data);
-    renderMarketResult(data);
-  } catch (err) {
-    console.error("Compare error:", err);
-    resultBox.innerHTML = `<p>${t("marketServiceError")}: ${err.message}<br><small>API URL: ${url}</small></p>`;
-  }
+    const res = await fetch(`${SCRAPER_API_BASE}/compare`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ingredients}) });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    renderMarketResult(await res.json());
+  } catch(err) { resultBox.innerHTML = `<p>${t("marketServiceError")}: ${err.message}</p>`; }
 };
 
 function renderMarketResult(data) {
-  const resultBox = document.getElementById("marketResult");
-  const rows = Array.isArray(data.rows) ? data.rows : [];
-  const totals = data.totals || {};
-  const cheapestMarket = data.cheapestMarket || "N/A";
-  const cheapestTotal = Number(data.cheapestTotal || 0);
-
-  let html = `<table class="market-table"><thead><tr>
-    <th>${t("ingredient")}</th><th>${t("qty")}</th>
-    <th>Şok ${t("unit")}</th><th>Şok ${t("cost")}</th>
-    <th>Carrefour ${t("unit")}</th><th>Carrefour ${t("cost")}</th>
-  </tr></thead><tbody>`;
-
-  rows.forEach((row) => {
-    html += `<tr>
-      <td>${row.ingredient}</td>
-      <td>${row.quantity}</td>
-      <td>${formatTryPrice(row.sok?.unitPrice)}</td>
-      <td>${formatTryPrice(row.sok?.cost)}</td>
-      <td>${formatTryPrice(row.carrefour?.unitPrice)}</td>
-      <td>${formatTryPrice(row.carrefour?.cost)}</td>
-    </tr>`;
-  });
-
-  html += `</tbody></table>
-    <p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p>
-    <p><strong>${t("totalCarrefour")}:</strong> ${formatTryPrice(totals.carrefour)}</p>
-    <p class="best-market">${t("cheapestMarket")}: ${cheapestMarket} (${formatTryPrice(cheapestTotal)})</p>`;
+  const resultBox = document.getElementById("marketResult"), rows = Array.isArray(data.rows)?data.rows:[], totals = data.totals||{}, cheapest = data.cheapestMarket||"N/A", cheapestTotal = Number(data.cheapestTotal||0);
+  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>Şok ${t("unit")}</th><th>Şok ${t("cost")}</th><th>Carrefour ${t("unit")}</th><th>Carrefour ${t("cost")}</th></tr></thead><tbody>`;
+  rows.forEach(r => { html += `<tr><td>${r.ingredient}</td><td>${r.quantity}</td><td>${formatTryPrice(r.sok?.unitPrice)}</td><td>${formatTryPrice(r.sok?.cost)}</td><td>${formatTryPrice(r.carrefour?.unitPrice)}</td><td>${formatTryPrice(r.carrefour?.cost)}</td></tr>`; });
+  html += `</tbody></table><p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>${t("totalCarrefour")}:</strong> ${formatTryPrice(totals.carrefour)}</p><p class="best-market">${t("cheapestMarket")}: ${cheapest} (${formatTryPrice(cheapestTotal)})</p>`;
   resultBox.innerHTML = html;
 }
 
-// ─── Open Market Links ───────────────────────────────────────────────────────
-
-window.openMarketLink = function (market, dessertIndex, ingredientIndex) {
-  const nameEl = document.getElementById(
-    `ing_name_${dessertIndex}_${ingredientIndex}`,
-  );
-  const descEl = document.getElementById(
-    `ing_desc_${dessertIndex}_${ingredientIndex}`,
-  );
-  const name = (nameEl?.value || "").trim();
-  const desc = (descEl?.value || "").trim();
-  const query = [name, desc].filter(Boolean).join(" ").trim();
-
-  if (!query) {
-    alert(t("writeIngredientFirst"));
-    return;
-  }
-
-  const q = encodeURIComponent(query);
-  const urls = {
-    sok: `https://www.sokmarket.com.tr/arama?q=${q}`,
-    carrefour: `https://www.carrefoursa.com/search/?q=${q}`,
-  };
+window.openMarketLink = function(market, di, ii) {
+  const nameEl = document.getElementById(`ing_name_${di}_${ii}`), descEl = document.getElementById(`ing_desc_${di}_${ii}`);
+  const query = [(nameEl?.value||"").trim(),(descEl?.value||"").trim()].filter(Boolean).join(" ").trim();
+  if (!query) { alert(t("writeIngredientFirst")); return; }
+  const urls = { sok:`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}`, carrefour:`https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}` };
   if (urls[market]) window.open(urls[market], "_blank");
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function renderUnitOptions(selected) {
-  return ["g", "kg", "ml", "l", "piece"]
-    .map(
-      (u) =>
-        `<option value="${u}" ${u === selected ? "selected" : ""}>${u}</option>`,
-    )
-    .join("");
-}
-
-function toBaseUnit(value, unit) {
-  const v = Number(value);
-  if (!Number.isFinite(v) || v <= 0) return null;
-  const u = String(unit || "").toLowerCase();
-  if (u === "g") return { type: "mass", value: v };
-  if (u === "kg") return { type: "mass", value: v * 1000 };
-  if (u === "ml") return { type: "volume", value: v };
-  if (u === "l") return { type: "volume", value: v * 1000 };
-  if (u === "piece") return { type: "count", value: v };
-  return null;
-}
-
-function calculateEffectiveQuantity(needQty, needUnit, packQty, packUnit) {
-  const need = toBaseUnit(needQty, needUnit);
-  const pack = toBaseUnit(packQty, packUnit);
-  if (!need || !pack) return Number(needQty) || 1;
-  if (need.type !== pack.type) return Number(needQty) || 1;
-  return Math.max(need.value / pack.value, 0.01);
-}
-
-function formatTryPrice(value) {
-  if (!Number.isFinite(Number(value))) return "-";
-  return `${Number(value).toFixed(2)} TL`;
-}
+function renderUnitOptions(sel) { return ["g","kg","ml","l","piece"].map(u => `<option value="${u}" ${u===sel?"selected":""}>${u}</option>`).join(""); }
+function toBaseUnit(v, u) { const n = Number(v); if (!Number.isFinite(n)||n<=0) return null; const s = String(u||"").toLowerCase(); if (s==="g") return {type:"mass",value:n}; if (s==="kg") return {type:"mass",value:n*1000}; if (s==="ml") return {type:"volume",value:n}; if (s==="l") return {type:"volume",value:n*1000}; if (s==="piece") return {type:"count",value:n}; return null; }
+function calculateEffectiveQuantity(nq, nu, pq, pu) { const n = toBaseUnit(nq,nu), p = toBaseUnit(pq,pu); if (!n||!p) return Number(nq)||1; if (n.type!==p.type) return Number(nq)||1; return Math.max(n.value/p.value,0.01); }
+function formatTryPrice(v) { if (!Number.isFinite(Number(v))) return "-"; return `${Number(v).toFixed(2)} TL`; }
 
 // ─── Chrome Notifications ───────────────────────────────────────────────────
 
-let notificationsEnabled = false;
+let notificationsEnabled = localStorage.getItem("notif_enabled") === "true";
 
-// Initialize notifications - auto-request permission on first use
-async function initNotifications() {
-  if (!("Notification" in window)) {
-    console.log("This browser does not support notifications");
-    return false;
-  }
+async function showChromeNotification(title, body, tag) {
+  if (!notificationsEnabled) return false;
+  if (!("Notification" in window)) return false;
+  if (Notification.permission !== "granted") return false;
 
-  // Already granted - enable automatically
-  if (Notification.permission === "granted") {
-    notificationsEnabled = true;
-    updateNotifButton();
-    return true;
-  }
+  const options = {
+    body: body,
+    tag: tag || "dessert-timer",
+    vibrate: [200, 100, 200],
+    data: { url: window.location.href },
+  };
 
-  // Not denied yet - auto-request permission
-  if (Notification.permission === "default") {
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      notificationsEnabled = true;
-      updateNotifButton();
-
-      // Show welcome notification
-      setTimeout(() => {
-        showChromeNotification(
-          "🍰 Notifications Enabled!",
-          "You will receive alerts when dessert timers finish.",
-        );
-      }, 1000);
-
-      return true;
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      if (registration?.showNotification) {
+        await registration.showNotification(title, options);
+        return true;
+      }
     }
-  }
+  } catch (_) {}
+
+  try {
+    new Notification(title, options);
+    return true;
+  } catch (_) {}
 
   return false;
 }
 
-// Toggle notifications
-window.toggleNotifications = async function () {
-  const btn = document.getElementById("notifBtn");
-
-  if (!("Notification" in window)) {
-    alert("This browser does not support notifications");
-    return;
-  }
-
-  if (Notification.permission === "denied") {
-    alert(
-      'Notifications are blocked.\n\nTo enable:\n1. Click the 🔒 icon in the address bar\n2. Set Notifications to "Allow"\n3. Refresh the page',
-    );
-    return;
-  }
-
+window.toggleNotifications = async function() {
+  var btn = document.getElementById("notifBtn");
+  if (!btn) return;
+  if (!("Notification" in window)) { alert("Browser does not support notifications"); return; }
   if (notificationsEnabled) {
+    desserts.forEach((_, i) => cancelTimerPush(i).catch(()=>{}));
     notificationsEnabled = false;
+    localStorage.setItem("notif_enabled", "false");
     btn.classList.remove("active");
-    btn.title = "Notifications OFF - Click to enable";
+    btn.title = "Enable Notifications";
     return;
   }
-
-  // Request permission
-  const permission = await Notification.requestPermission();
-
+  if (Notification.permission === "denied") {
+    alert("Notifications blocked. Click the lock icon in the address bar to allow them.");
+    return;
+  }
+  var permission = await Notification.requestPermission();
   if (permission === "granted") {
     notificationsEnabled = true;
+    localStorage.setItem("notif_enabled", "true");
     btn.classList.add("active");
-    btn.title = "Notifications ON - Click to disable";
-
-    // Show confirmation notification
-    showChromeNotification(
-      "🍰 Notifications Enabled!",
-      "You will receive alerts when dessert timers finish.",
-    );
+    btn.title = "Disable Notifications";
+    await ensurePushSubscription();
+    await fetch(`${SCRAPER_API_BASE}/push-test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: pushToken, url: window.location.href }),
+    });
+    desserts.forEach((_, i) => syncTimerPush(i).catch(()=>{}));
+    showChromeNotification("Notifications Enabled!", "You will receive alerts when dessert timers finish.", "notifications-enabled");
   }
 };
 
-// Show Chrome notification (appears like any other app notification)
-function showChromeNotification(title, body, tag = "dessert-timer") {
-  // Only check if browser supports notifications and permission is granted
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    return;
-  }
-
-  const options = {
-    body: body,
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍰</text></svg>",
-    badge:
-      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍰</text></svg>",
-    tag: tag,
-    requireInteraction: true,
-    vibrate: [200, 100, 200],
-    silent: false,
-  };
-
-  // Use Service Worker (works even when tab is in background)
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.ready.then((registration) => {
-      registration.showNotification(title, options);
-    });
-  } else {
-    // Fallback to regular Notification
-    new Notification(title, options);
-  }
-}
-
-// Update notification button state
-function updateNotifButton() {
-  const btn = document.getElementById("notifBtn");
+function initNotifications() {
+  var btn = document.getElementById("notifBtn");
   if (!btn) return;
-
   if (notificationsEnabled && Notification.permission === "granted") {
     btn.classList.add("active");
-    btn.title = "Notifications ON - Click to disable";
+    btn.title = "Disable Notifications";
   } else {
     btn.classList.remove("active");
-    btn.title = "Notifications OFF - Click to enable";
+    btn.title = "Enable Notifications";
   }
 }
