@@ -5,6 +5,18 @@ puppeteer.use(StealthPlugin());
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function createConfiguredPage(browser) {
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  );
+  await page.setViewport({ width: 1440, height: 2200 });
+  await page.setExtraHTTPHeaders({
+    "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+  });
+  return page;
+}
+
 function parsePriceValue(txt) {
   if (!txt) return null;
   const m =
@@ -21,7 +33,7 @@ async function scrapeSok(product) {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-  const page = await browser.newPage();
+  const page = await createConfiguredPage(browser);
   try {
     console.log(`[Sok] Searching for: ${product}`);
     await page.goto(
@@ -135,7 +147,7 @@ async function scrapeCarrefour(product) {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-  const page = await browser.newPage();
+  const page = await createConfiguredPage(browser);
   try {
     console.log(`[Carrefour] Searching for: ${product}`);
     await page.goto(
