@@ -8,6 +8,11 @@ const { exec } = require('child_process');
 const path = require('path');
 const http = require('http');
 
+if (process.env.RENDER || process.env.PORT) {
+  require('./server.js');
+  return;
+}
+
 const PORTS_TO_TRY = [5050, 5051, 5052, 5053, 8080, 3000];
 const SERVER_FILE = path.join(__dirname, 'server.js');
 

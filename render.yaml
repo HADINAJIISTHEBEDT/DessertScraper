@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --ignore-scripts
-    startCommand: node server-simple.js
+    startCommand: node server.js
     envVars:
       - key: NODE_VERSION
         value: 18
