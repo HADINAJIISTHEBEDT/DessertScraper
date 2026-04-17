@@ -27,6 +27,13 @@ const CARREFOUR_DEBUG =
 const CARREFOUR_MIRROR_FALLBACK =
   String(process.env.CARREFOUR_MIRROR_FALLBACK || "1").trim() !== "0";
 
+// Configurable Carrefour scraping service (e.g., ScrapingBee, ScraperAPI, etc.)
+// Format: https://api.scrapingservice.com/scrape?url={URL}&api_key=KEY
+// The {URL} placeholder will be replaced with the encoded Carrefour URL
+const CARREFOUR_SCRAPER_SERVICE = String(
+  process.env.CARREFOUR_SCRAPER_SERVICE || "",
+).trim();
+
 // Detect if running on cloud (Render, etc.) vs localhost
 const IS_CLOUD = Boolean(
   process.env.RENDER ||
@@ -136,50 +143,61 @@ async function fetchViaJinaReader(url) {
 
 /**
  * Parse Sok product listings from Jina.ai markdown output.
- * Jina returns products in this format:
- *   ## Mis Uht Süt Yarım Yağlı 1 L 37,50₺
- * Or as separate lines with images.
+ * Actual Jina format per product line:
+ *   [![Image 30: product-thumb](https://images.ceptesok.com/cdn-cgi/image/width=216,height=216,fit=pad,quality=100,format=webp/product-assets/sub-folder/9c33a0ed-7e67-48c7-8a7a-1c7baf32f01f.jpg) ## Mis Uht Süt Yarım Yağlı 1 L 37,50₺](https://www.sokmarket.com.tr/mis-uht-sut-yarim-yagli-1-l-p-5834)
  */
 function parseSokFromJinaText(text) {
   const out = [];
   const seen = new Set();
 
-  // Pattern 1: Combined name+price in heading (## Product Name 37,50₺)
-  // Using Unicode \u20BA for ₺ symbol - tested and confirmed working
-  const headingPattern = /## (.+? (\d+,\d+)\u20BA)/g;
+  // Single regex to match entire product line: image URL + name + price
+  // Format: [![Image N: product-thumb](IMAGE_URL) ## Product Name PRICE₺](PRODUCT_URL)
+  const productPattern =
+    /\[!\[Image \d+: product-thumb\]\((https?:\/\/[^)]+)\)[^\]]*## ([^\]]+?)\s+(\d+,\d+)\u20BA[^\]]*\]/g;
   let match;
-  while ((match = headingPattern.exec(text)) !== null) {
-    const fullName = match[1].trim();
-    const priceStr = match[2];
+
+  while ((match = productPattern.exec(text)) !== null) {
+    const imageUrl = match[1];
+    const fullName = match[2].trim();
+    const priceStr = match[3];
     const price = Number.parseFloat(
       priceStr.replace(/\./g, "").replace(",", "."),
     );
 
     if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
 
-    // Remove the price+symbol from the name
-    let name = fullName.replace(/\s+\d+,\d+\s*\u20BA\s*$/, "").trim();
+    // Clean name - remove trailing size/volume info that's part of the name
+    let name = fullName.trim();
     if (name.length < 3) continue;
 
-    // Extract image URL from nearby content
-    const beforeMatch = text.slice(Math.max(0, match.index - 500), match.index);
-    const imgMatch =
-      beforeMatch.match(
-        /!\[Image[^:]*:\s*([^\]]+)\]\((https?:\/\/[^\s)]+product[^\s)]*)\)/i,
-      ) ||
-      beforeMatch.match(
-        /(https?:\/\/[^\s]+product[^\s]+\.(jpg|jpeg|png|webp))/i,
+    // Normalize image URL - remove resize parameters for cleaner URL
+    let cleanImage = imageUrl;
+    const cdnMatch = imageUrl.match(
+      /(https:\/\/images\.ceptesok\.com\/cdn-cgi\/image\/[^/]+\/product-assets\/sub-folder\/[^)]+)/i,
+    );
+    if (cdnMatch) {
+      // Extract the base product image URL without resize params
+      const pathMatch = cdnMatch[1].match(
+        /\/product-assets\/(sub-folder\/[^(]+)/i,
       );
-    const image = imgMatch ? imgMatch[1] || imgMatch[2] || "" : "";
+      if (pathMatch) {
+        cleanImage = `https://images.ceptesok.com/product-assets/${pathMatch[1]}`;
+      }
+    }
 
     const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
     if (!seen.has(key)) {
       seen.add(key);
-      out.push({ market: "Sok", name: normalizeText(name), price, image });
+      out.push({
+        market: "Sok",
+        name: normalizeText(name),
+        price,
+        image: cleanImage,
+      });
     }
   }
 
-  // Pattern 2: Product name followed by price on same line or next line
+  // Fallback: line-by-line if pattern doesn't match
   if (out.length === 0) {
     const lines = text
       .split("\n")
@@ -187,62 +205,34 @@ function parseSokFromJinaText(text) {
       .filter(Boolean);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (!line.includes("product-thumb")) continue;
 
-      // Skip navigation/filter lines
-      if (
-        /^(kampanyalar|kurumsal|kategoriler|filtre|marka|sokmarket|cepte)/i.test(
-          line,
-        )
-      )
-        continue;
-      if (/^\[?\!\[?image/i.test(line)) continue;
-      if (/^[\-\s]*\[\s*[x\s]*\]/i.test(line)) continue;
+      // Extract image URL
+      const imgMatch = line.match(/\((https?:\/\/[^)]+product[^)]+)\)/i);
+      if (!imgMatch) continue;
+      const image = imgMatch[1];
 
-      // Check if this line has a price
-      const price = parsePriceValue(line);
-      if (!price) continue;
+      // Extract price
+      const priceMatch = line.match(/(\d+,\d+)\u20BA/);
+      if (!priceMatch) continue;
+      const price = Number.parseFloat(priceMatch[1].replace(",", "."));
+      if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
 
-      // Try to extract name from the same line
-      let name = line
-        .replace(/[\d]{1,3}(?:[\.,]\d{3})*[,\.]\d{1,2}\s*₺/gi, "")
-        .trim();
-      name = name.replace(/^#+\s*/, "").trim();
-
-      // If name is too short, look at previous line
-      if (name.length < 3 && i > 0) {
-        name = lines[i - 1]
-          .replace(/^#+\s*/, "")
-          .replace(/\[\!\[.*$/, "")
-          .trim();
-      }
-
+      // Extract name - between ## and price
+      const nameMatch = line.match(/##\s+(.+?)\s+\d+,\d+\u20BA/);
+      if (!nameMatch) continue;
+      const name = nameMatch[1].trim();
       if (name.length < 3) continue;
-      if (/^(kampanyalar|kurumsal|kategoriler|filtre|marka)/i.test(name))
-        continue;
 
       const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
       if (!seen.has(key)) {
         seen.add(key);
-
-        // Find image
-        let image = "";
-        const contextStart = Math.max(0, i - 3);
-        const contextEnd = Math.min(lines.length, i + 2);
-        for (let j = contextStart; j < contextEnd; j++) {
-          const imgMatch = lines[j].match(
-            /\((https?:\/\/[^\s)]+product[^\s)]*)\)/i,
-          );
-          if (imgMatch) {
-            image = imgMatch[1];
-            break;
-          }
-        }
-
         out.push({ market: "Sok", name: normalizeText(name), price, image });
       }
     }
   }
 
+  console.log(`[Sok] Parser found: ${out.length} items`);
   return dedupeItems(out);
 }
 
@@ -614,6 +604,46 @@ async function fetchCarrefourHtmlViaProxy(query) {
 
     if (!html) throw new Error("proxy returned no html");
     return html;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Fetch Carrefour HTML via a configurable third-party scraping service.
+ * This is the ONLY reliable way to scrape Carrefour from cloud hosting.
+ *
+ * Env: CARREFOUR_SCRAPER_SERVICE
+ * Format: https://api.service.com/scrape?url={URL}&api_key=KEY
+ * Examples:
+ *   ScrapingBee: https://app.scrapingbee.com/api/v1/?api_key=KEY&url={URL}&render_js=false
+ *   ScraperAPI:  http://api.scraperapi.com/?api_key=KEY&url={URL}
+ *   ScrapingDog: https://api.scrapingdog.com/scrape?api_key=KEY&url={URL}
+ */
+async function fetchCarrefourViaScraperService(query) {
+  if (!CARREFOUR_SCRAPER_SERVICE) return null;
+
+  const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+  const serviceUrl = CARREFOUR_SCRAPER_SERVICE.replace(
+    "{URL}",
+    encodeURIComponent(targetUrl),
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    console.log(
+      `[Carrefour] Using scraper service: ${serviceUrl.substring(0, 80)}...`,
+    );
+    const response = await fetch(serviceUrl, {
+      headers: { Accept: "text/html" },
+      signal: controller.signal,
+    });
+
+    if (!response.ok)
+      throw new Error(`scraper service HTTP ${response.status}`);
+    return await response.text();
   } finally {
     clearTimeout(timeout);
   }
@@ -1140,7 +1170,28 @@ async function scrapeCarrefourViaJina(product) {
 async function scrapeCarrefour(product) {
   const cfg = carrefourProxyConfigState();
 
-  // Priority 1: Proxy (if configured - best for Carrefour)
+  // Priority 1: Configurable scraping service (ONLY reliable method for Carrefour on cloud)
+  if (CARREFOUR_SCRAPER_SERVICE) {
+    const queries = carrefourQueryVariants(product);
+    for (const query of queries) {
+      try {
+        const html = await fetchCarrefourViaScraperService(query);
+        if (html) {
+          const items = parseCarrefourHtml(html);
+          if (items.length > 0) {
+            console.log(
+              `[Carrefour] Scraper service found: ${items.length} items`,
+            );
+            return items;
+          }
+        }
+      } catch (err) {
+        console.log(`[Carrefour] Scraper service error: ${err.message}`);
+      }
+    }
+  }
+
+  // Priority 2: Proxy (if configured)
   if (cfg.mode === "required" || cfg.mode === "fallback") {
     const queries = carrefourQueryVariants(product);
     for (const query of queries) {
