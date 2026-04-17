@@ -3,7 +3,7 @@ const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 
 puppeteer.use(StealthPlugin());
 
-const NAV_TIMEOUT_MS = 45000;
+const NAV_TIMEOUT_MS = 60000;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const CARREFOUR_PROXY_MODE = String(process.env.CARREFOUR_PROXY_MODE || "off")
@@ -62,7 +62,7 @@ function dedupeItems(items) {
     const name = normalizeText(item.name);
     const price = Number(item.price);
     const image = normalizeText(item.image);
-    if (!name || name.length < 3) continue;
+    if (!name || name.length < 2) continue;
     if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
     const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
     if (!map.has(key)) {
@@ -105,46 +105,99 @@ function carrefourProxyConfigState() {
 
 async function createConfiguredPage(browser) {
   const page = await browser.newPage();
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-  );
+
+  // Set a realistic user agent
+  const userAgent =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+  await page.setUserAgent(userAgent);
   await page.setViewport({ width: 1920, height: 1080 });
+
+  // Set realistic headers that match a real Chrome browser
   await page.setExtraHTTPHeaders({
     Accept:
       "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "max-age=0",
     Connection: "keep-alive",
-    DNT: "1",
+    "sec-ch-ua":
+      '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
-    "Sec-Ch-Ua": `"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"`,
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": `"Windows"`,
   });
 
-  // Override navigator.webdriver to avoid bot detection
+  // Anti-detection scripts - run before any page loads
   await page.evaluateOnNewDocument(() => {
+    // Override webdriver property
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+
+    // Add chrome runtime object
     window.chrome = { runtime: {} };
+
+    // Override permissions query
     const originalQuery = window.navigator.permissions.query;
     window.navigator.permissions.query = (parameters) =>
       parameters.name === "notifications"
         ? Promise.resolve({ state: Notification.permission })
         : originalQuery(parameters);
+
+    // Mock plugins to appear like a real browser
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3, 4, 5],
+    });
+
+    // Mock languages
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["tr-TR", "tr", "en-US", "en"],
+    });
+
+    // Remove automation indicators
+    delete navigator.__proto__.webdriver;
+
+    // Override toString for webdriver
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function (parameter) {
+      if (parameter === 37445) {
+        return "Intel Inc.";
+      }
+      if (parameter === 37446) {
+        return "Intel Iris OpenGL Engine";
+      }
+      return getParameter.call(this, parameter);
+    };
   });
 
   return page;
 }
 
-async function gotoFast(page, url) {
-  await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: NAV_TIMEOUT_MS,
-  });
+async function gotoWithRetry(page, url, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT_MS,
+      });
+      return true;
+    } catch (err) {
+      if (i === retries) throw err;
+      await delay(2000);
+    }
+  }
+  return false;
+}
+
+async function waitForContent(page, selector, timeout = 15000) {
+  try {
+    await page.waitForSelector(selector, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function extractHtmlFromProxyPayload(data) {
@@ -256,15 +309,28 @@ function parseCarrefourHtml(html) {
   const items = [];
   const seen = new Set();
 
-  const cardRegex =
-    /<li[^>]*class="[^"]*product-listing-item[^"]*"[^>]*>[\s\S]*?<\/li>/gi;
-  const cards = normalizedHtml.match(cardRegex) || [];
+  // Try multiple regex patterns for product cards
+  const patterns = [
+    /<li[^>]*class="[^"]*product-listing-item[^"]*"[^>]*>[\s\S]*?<\/li>/gi,
+    /<div[^>]*class="[^"]*product-card[^"]*"[^>]*>[\s\S]*?<\/div>(?=\s*<)/gi,
+    /<a[^>]*href="[^"]*\/product[^"]*"[^>]*>[\s\S]*?<\/a>/gi,
+  ];
+
+  let cards = [];
+  for (const pattern of patterns) {
+    cards = normalizedHtml.match(pattern) || [];
+    if (cards.length > 0) break;
+  }
 
   for (const card of cards) {
     const nameMatch =
       card.match(
         /<h3[^>]*class="[^"]*item-name[^"]*"[^>]*>([\s\S]*?)<\/h3>/i,
-      ) || card.match(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/i);
+      ) ||
+      card.match(
+        /<h[2-4][^>]*class="[^"]*product-name[^"]*"[^>]*>([\s\S]*?)<\/h[2-4]>/i,
+      ) ||
+      card.match(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/i);
     const name = normalizeText(
       (nameMatch?.[1] || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " "),
     );
@@ -274,6 +340,7 @@ function parseCarrefourHtml(html) {
         /js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i,
       )?.[1] ||
       card.match(/price-cont[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card.match(/class="[^"]*price[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
       card;
     const price = parsePriceValue(
       String(priceCandidate || "")
@@ -315,9 +382,13 @@ function parseCarrefourHtml(html) {
     let name = "";
     for (let j = i - 1; j >= Math.max(0, i - 4); j -= 1) {
       const candidate = lines[j];
-      if (!candidate || candidate.length < 3) continue;
+      if (!candidate || candidate.length < 2) continue;
       if (parsePriceValue(candidate)) continue;
-      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate))
+      if (
+        /sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie/i.test(
+          candidate,
+        )
+      )
         continue;
       name = candidate;
       break;
@@ -350,9 +421,39 @@ async function extractCarrefourItemsFromPage(page) {
       );
     };
 
-    const cards = document.querySelectorAll(
-      ".product-listing-item, .item.product-card, [class*='product-listing-item'], [class*='product-card'], li[class*='product']",
-    );
+    // Try multiple selectors for product cards
+    const selectors = [
+      ".product-listing-item",
+      ".product-card",
+      ".item.product-card",
+      '[class*="product-listing-item"]',
+      '[class*="product-card"]',
+      '[class*="productCard"]',
+      'li[class*="product"]',
+      'a[href*="/product/"]',
+      ".product-item",
+      '[data-testid*="product"]',
+    ];
+
+    let cards = [];
+    for (const sel of selectors) {
+      const found = document.querySelectorAll(sel);
+      if (found.length > 0) {
+        cards = Array.from(found);
+        break;
+      }
+    }
+
+    // If no cards found, try to find any elements with prices
+    if (cards.length === 0) {
+      const allElements = Array.from(document.querySelectorAll("*"));
+      for (const el of allElements) {
+        const text = el.textContent || "";
+        if (/\u20BA|TL/.test(text) && text.length < 100) {
+          cards.push(el);
+        }
+      }
+    }
 
     const out = [];
     const seen = new Set();
@@ -416,26 +517,57 @@ async function scrapeCarrefourDirect(query) {
       "--disable-blink-features=AutomationControlled",
       "--disable-extensions",
       "--disable-infobars",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--hide-scrollbars",
+      "--mute-audio",
+      "--no-first-run",
+      "--no-default-browser-check",
     ],
   });
   const page = await createConfiguredPage(browser);
 
   try {
-    // Add random delay before navigation to appear more human
-    await delay(800 + Math.random() * 600);
+    console.log(`[Carrefour] Navigating to search page...`);
 
-    await gotoFast(
+    // Add random delay before navigation to appear more human
+    await delay(1000 + Math.random() * 1000);
+
+    // First visit the homepage, then navigate to search (more human-like)
+    try {
+      await page.goto("https://www.carrefoursa.com", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await delay(2000 + Math.random() * 1000);
+    } catch (_) {
+      // If homepage fails, continue to search directly
+    }
+
+    // Navigate to search page
+    await gotoWithRetry(
       page,
       `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
     );
 
-    // Wait for page to load with random delays
-    await delay(2000 + Math.random() * 1000);
+    // Wait for page to load with generous timeout
+    await delay(3000 + Math.random() * 2000);
 
-    await page
-      .evaluate(() => {
-        const labels = ["kabul et", "accept", "tamam", "onayla"];
-        const nodes = Array.from(document.querySelectorAll("button, a, span"));
+    // Handle cookie/consent banners
+    try {
+      await page.evaluate(() => {
+        const labels = [
+          "kabul et",
+          "accept",
+          "tamam",
+          "onayla",
+          "accept all",
+          "accept cookies",
+          "t\u00fcm\u00fcn\u00fc kabul et",
+        ];
+        const nodes = Array.from(
+          document.querySelectorAll("button, a, [role='button'], [onclick]"),
+        );
         for (const node of nodes) {
           const text = String(node.textContent || "")
             .trim()
@@ -444,19 +576,61 @@ async function scrapeCarrefourDirect(query) {
             node.click();
           }
         }
-      })
-      .catch(() => {});
+      });
+      await delay(1000);
+    } catch (_) {}
 
-    // Simulate human-like scrolling with random delays
-    for (let i = 0; i < 4; i += 1) {
-      await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
-      await delay(600 + Math.random() * 500);
+    // Wait for product listings to appear
+    const contentLoaded = await Promise.race([
+      waitForContent(
+        page,
+        ".product-listing-item, .product-card, [class*='product-card'], [class*='product-listing']",
+        10000,
+      ),
+      waitForContent(page, "h3, h2, .item-name", 10000),
+      new Promise((resolve) => {
+        setTimeout(() => resolve(false), 10000);
+      }),
+    ]);
+
+    // If no content loaded, check if we're on a challenge page
+    if (!contentLoaded) {
+      const pageTitle = await page.title().catch(() => "");
+      console.log(`[Carrefour] Page title: ${pageTitle}`);
+
+      // Check for challenge/captcha indicators
+      const pageContent = await page.content().catch(() => "");
+      if (/challenge|captcha|verify|security|robot/i.test(pageContent)) {
+        console.log(
+          `[Carrefour] Detected challenge/captcha page, trying alternative approach...`,
+        );
+
+        // Try waiting longer and reloading
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 });
+        await delay(5000 + Math.random() * 3000);
+      }
     }
 
-    const items = await extractCarrefourItemsFromPage(page);
-    if (items.length > 0) return items;
+    // Simulate human-like scrolling with random delays
+    for (let i = 0; i < 5; i += 1) {
+      await page.evaluate(() => window.scrollBy(0, 600 + Math.random() * 500));
+      await delay(800 + Math.random() * 600);
+    }
 
-    // Fallback parse from full HTML snapshot.
+    // Scroll back up
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(500);
+
+    const items = await extractCarrefourItemsFromPage(page);
+    if (items.length > 0) {
+      console.log(`[Carrefour] Found ${items.length} items via DOM extraction`);
+      return items;
+    }
+
+    // Fallback parse from full HTML snapshot
+    console.log(
+      `[Carrefour] DOM extraction found 0 items, trying HTML parsing...`,
+    );
     const html = await page.content();
     return parseCarrefourHtml(html);
   } finally {
@@ -478,9 +652,13 @@ function parseCarrefourMirrorText(text) {
     let name = "";
     for (let j = i - 1; j >= Math.max(0, i - 4); j -= 1) {
       const candidate = lines[j];
-      if (!candidate || candidate.length < 3) continue;
+      if (!candidate || candidate.length < 2) continue;
       if (parsePriceValue(candidate)) continue;
-      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate))
+      if (
+        /sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie/i.test(
+          candidate,
+        )
+      )
         continue;
       name = candidate;
       break;
@@ -506,7 +684,7 @@ async function fetchCarrefourMirrorItems(query) {
     headers: {
       Accept: "text/plain, text/html;q=0.9, */*;q=0.8",
       "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     },
   });
   if (!response.ok) throw new Error(`mirror http ${response.status}`);
@@ -593,20 +771,74 @@ async function scrapeSok(product) {
       "--disable-blink-features=AutomationControlled",
       "--disable-extensions",
       "--disable-infobars",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--hide-scrollbars",
+      "--mute-audio",
+      "--no-first-run",
+      "--no-default-browser-check",
     ],
   });
   const page = await createConfiguredPage(browser);
 
   try {
     console.log(`[Sok] Searching for: ${product}`);
-    await delay(600 + Math.random() * 500);
-    await gotoFast(
+    await delay(800 + Math.random() * 800);
+
+    // Try visiting homepage first
+    try {
+      await page.goto("https://www.sokmarket.com.tr", {
+        waitUntil: "domcontentloaded",
+        timeout: 30000,
+      });
+      await delay(1500 + Math.random() * 1000);
+    } catch (_) {}
+
+    await gotoWithRetry(
       page,
       `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(product)}`,
     );
-    await delay(1800 + Math.random() * 800);
-    await page.evaluate(() => window.scrollBy(0, 1000 + Math.random() * 300));
-    await delay(900);
+    await delay(2500 + Math.random() * 1500);
+
+    // Handle cookie banners
+    try {
+      await page.evaluate(() => {
+        const labels = ["kabul et", "accept", "tamam", "onayla"];
+        const nodes = Array.from(document.querySelectorAll("button, a"));
+        for (const node of nodes) {
+          const text = String(node.textContent || "")
+            .trim()
+            .toLowerCase();
+          if (labels.some((label) => text === label || text.includes(label))) {
+            node.click();
+          }
+        }
+      });
+      await delay(800);
+    } catch (_) {}
+
+    // Wait for product listings
+    const contentLoaded = await Promise.race([
+      waitForContent(
+        page,
+        ".product-card, .product-item, [class*='product-card'], [class*='ProductCard'], [class*='product-']",
+        8000,
+      ),
+      new Promise((resolve) => {
+        setTimeout(() => resolve(false), 8000);
+      }),
+    ]);
+
+    // Multiple scroll passes
+    await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
+    await delay(1000 + Math.random() * 500);
+
+    await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
+    await delay(1000 + Math.random() * 500);
+
+    // Scroll back up
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(500);
 
     const items = await page.evaluate(() => {
       const normalize = (value) =>
@@ -627,13 +859,19 @@ async function scrapeSok(product) {
 
       const out = [];
       const seen = new Set();
+
+      // Multiple selector strategies
       const selectors = [
         ".product-card",
         ".product-item",
         '[class*="ProductCard"]',
+        '[class*="product-card"]',
+        '[class*="productCard"]',
         '[class*="product-"]',
         "article",
         '[data-testid*="product"]',
+        'a[href*="/urun/"]',
+        'a[href*="/product/"]',
       ];
 
       let nodes = [];
@@ -654,7 +892,7 @@ async function scrapeSok(product) {
 
       nodes.forEach((el) => {
         const text = normalize(el.innerText);
-        if (text.length < 4) return;
+        if (text.length < 3) return;
         const price = parsePrice(text);
         if (!Number.isFinite(price) || price <= 0 || price > 5000) return;
 
@@ -665,6 +903,7 @@ async function scrapeSok(product) {
           ".name",
           '[class*="name"]',
           '[class*="title"]',
+          ".product-name",
         ];
         for (const sel of nameSelectors) {
           const nameEl = el.querySelector(sel);
