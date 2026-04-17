@@ -835,8 +835,10 @@ async function extractCarrefourItemsFromPage(page) {
 }
 
 async function scrapeCarrefourDirect(query) {
+  console.log(`[Carrefour] Starting Puppeteer with maximum stealth...`);
+
   const browser = await puppeteer.launch({
-    headless: "new",
+    headless: false,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -847,65 +849,137 @@ async function scrapeCarrefourDirect(query) {
       "--disable-gpu",
       "--hide-scrollbars",
       "--mute-audio",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-web-security",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--window-size=1920,1080",
     ],
   });
   const page = await createConfiguredPage(browser);
 
   try {
-    console.log(`[Carrefour] Puppeteer: Navigating...`);
-    await delay(1000 + Math.random() * 1000);
-
+    // Step 1: Build browser reputation by visiting trusted site first
+    console.log(`[Carrefour] Step 1: Building browser reputation...`);
     try {
-      await page.goto("https://www.carrefoursa.com", {
-        waitUntil: "domcontentloaded",
-        timeout: 30000,
+      await page.goto("https://www.google.com", {
+        waitUntil: "networkidle2",
+        timeout: 15000,
       });
       await delay(2000 + Math.random() * 1000);
     } catch (_) {}
 
-    await gotoWithRetry(
-      page,
-      `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
-    );
+    // Step 2: Visit Carrefour homepage (not search directly)
+    console.log(`[Carrefour] Step 2: Visiting homepage...`);
+    await page.goto("https://www.carrefoursa.com", {
+      waitUntil: "networkidle2",
+      timeout: 30000,
+    });
     await delay(3000 + Math.random() * 2000);
 
+    // Handle cookie consent
     try {
       await page.evaluate(() => {
-        const labels = ["kabul et", "accept", "tamam", "onayla"];
-        const nodes = Array.from(
+        const buttons = Array.from(
           document.querySelectorAll("button, a, [role='button']"),
         );
-        for (const node of nodes) {
-          const text = String(node.textContent || "")
-            .trim()
-            .toLowerCase();
-          if (labels.some((label) => text === label || text.includes(label)))
-            node.click();
+        for (const btn of buttons) {
+          const text = (btn.textContent || "").trim().toLowerCase();
+          if (
+            [
+              "kabul et",
+              "accept",
+              "tamam",
+              "onayla",
+              "t\u00fcm\u00fcn\u00fc kabul et",
+              "accept all",
+            ].some((k) => text.includes(k))
+          ) {
+            btn.click();
+            return;
+          }
         }
       });
-      await delay(1000);
+      await delay(1500);
     } catch (_) {}
 
-    await Promise.race([
-      waitForContent(
-        page,
-        ".product-listing-item, .product-card, [class*='product-card']",
-        10000,
-      ),
-      new Promise((resolve) => setTimeout(() => resolve(false), 10000)),
-    ]);
+    // Step 3: Use search box like a real user (type character by character)
+    console.log(`[Carrefour] Step 3: Using search box...`);
+    let searchUsed = false;
+    try {
+      await page.evaluate(() => {
+        const searchInput = document.querySelector(
+          'input[type="search"], input[placeholder*="Ara"], input[name="q"], .search-input, #search-input',
+        );
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.value = "";
+          return true;
+        }
+        return false;
+      });
+      await delay(500);
 
-    for (let i = 0; i < 5; i++) {
-      await page.evaluate(() => window.scrollBy(0, 600 + Math.random() * 500));
-      await delay(800 + Math.random() * 600);
+      // Type character by character with random delays
+      for (const char of query) {
+        await page.keyboard.type(char, { delay: 80 + Math.random() * 120 });
+      }
+      await delay(500 + Math.random() * 500);
+      await page.keyboard.press("Enter");
+      searchUsed = true;
+    } catch (_) {}
+
+    if (!searchUsed) {
+      console.log(`[Carrefour] Search box not found, navigating directly...`);
+      await gotoWithRetry(
+        page,
+        `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
+      );
     }
 
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await delay(500);
+    // Wait for results
+    await delay(4000 + Math.random() * 2000);
+
+    // Check if blocked by Cloudflare
+    const pageTitle = await page.title().catch(() => "");
+    const pageContent = await page.content().catch(() => "");
+
+    if (
+      /attention required|cloudflare|blocked|security check|captcha|verify you are human/i.test(
+        pageContent,
+      ) ||
+      /cloudflare/i.test(pageTitle)
+    ) {
+      console.log(`[Carrefour] BLOCKED by Cloudflare - datacenter IP detected`);
+      console.log(
+        `[Carrefour] This CANNOT be bypassed without a residential proxy.`,
+      );
+      console.log(
+        `[Carrefour] SOLUTION: Set CARREFOUR_SCRAPER_SERVICE env variable.`,
+      );
+      console.log(
+        `[Carrefour] Example: CARREFOUR_SCRAPER_SERVICE=https://app.scrapingbee.com/api/v1/?api_key=KEY&url={URL}`,
+      );
+      return [];
+    }
+
+    // Step 4: Scroll like a real user
+    console.log(`[Carrefour] Step 4: Scrolling and collecting data...`);
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 300));
+      await delay(1000 + Math.random() * 800);
+    }
+
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    await delay(1000);
 
     const items = await extractCarrefourItemsFromPage(page);
-    if (items.length > 0) return items;
+    if (items.length > 0) {
+      console.log(`[Carrefour] Puppeteer found: ${items.length} items`);
+      return items;
+    }
 
+    console.log(`[Carrefour] DOM extraction found 0, trying HTML parse...`);
     const html = await page.content();
     return parseCarrefourHtml(html);
   } finally {

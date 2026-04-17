@@ -2,6 +2,12 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+const {
+  compareIngredients,
+  searchProduct,
+  searchMultiple,
+} = require("./scraper");
+
 const PORT = process.env.PORT || 5050;
 
 const MIME = {
@@ -31,59 +37,6 @@ function serveFile(res, filePath, contentType) {
     });
     res.end(data);
   });
-}
-
-function getMockData(product, market) {
-  return [
-    {
-      market,
-      name: `${product} - ${market} Product 1`,
-      price: market === "Sok" ? 25.9 : 27.5,
-      image: "",
-    },
-    {
-      market,
-      name: `${product} - ${market} Product 2`,
-      price: market === "Sok" ? 32.5 : 30.0,
-      image: "",
-    },
-  ];
-}
-
-async function searchMultiple(product) {
-  return {
-    sok: getMockData(product, "Sok"),
-    carrefour: getMockData(product, "Carrefour"),
-  };
-}
-
-async function compareIngredients(ingredients) {
-  const rows = [];
-  let sokTotal = 0,
-    carrefourTotal = 0;
-  for (const ing of ingredients) {
-    const name = String(ing.name || "").trim();
-    const quantity = Number(ing.quantity || 0);
-    if (!name || quantity <= 0) continue;
-    const sokUnit = 25.9,
-      carrefourUnit = 27.5;
-    const sokCost = sokUnit * quantity,
-      carrefourCost = carrefourUnit * quantity;
-    sokTotal += sokCost;
-    carrefourTotal += carrefourCost;
-    rows.push({
-      ingredient: name,
-      quantity,
-      sok: { unitPrice: sokUnit, cost: sokCost },
-      carrefour: { unitPrice: carrefourUnit, cost: carrefourCost },
-    });
-  }
-  return {
-    rows,
-    totals: { sok: sokTotal, carrefour: carrefourTotal },
-    cheapestMarket: sokTotal < carrefourTotal ? "Sok" : "Carrefour",
-    cheapestTotal: Math.min(sokTotal, carrefourTotal),
-  };
 }
 
 const server = http.createServer((req, res) => {
@@ -129,7 +82,7 @@ const server = http.createServer((req, res) => {
         else if (req.url === "/compare")
           result = await compareIngredients(data.ingredients || []);
         else if (req.url === "/search")
-          result = getMockData(data.product, data.market || "Sok");
+          result = await searchProduct(data.product, data.market || "sok");
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result || {}));
       } catch (e) {

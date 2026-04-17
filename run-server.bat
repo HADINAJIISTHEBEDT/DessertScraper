@@ -1,4 +1,6 @@
 @echo off
 cd /d "%~dp0"
-node server.js
+echo Starting HTTPS server...
+echo.
+node server-test.js
 pause
