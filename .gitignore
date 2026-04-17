@@ -4,3 +4,8 @@ node_modules/
 *.log
 serviceAccountKey.json
 "START HERE - Dessert Cafe Manager.exe" 
+*.exe
+*.cer
+*.crt*
+*.key*
+*.png
