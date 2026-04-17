@@ -32,16 +32,12 @@ const IS_CLOUD = Boolean(
   process.env.RENDER ||
   process.env.PORT ||
   process.env.NODE_ENV === "production" ||
-  process.env.DYNO, // Heroku
+  process.env.DYNO,
 );
 
 function logCarrefourDebug(message, extra) {
   if (!CARREFOUR_DEBUG) return;
-  if (extra === undefined) {
-    console.log(`[Carrefour][Debug] ${message}`);
-  } else {
-    console.log(`[Carrefour][Debug] ${message}`, extra);
-  }
+  console.log(`[Carrefour][Debug] ${message}`, extra || "");
 }
 
 function normalizeText(value) {
@@ -53,9 +49,10 @@ function normalizeText(value) {
 function parsePriceValue(text) {
   if (!text) return null;
   const str = String(text);
+  // Match Turkish Lira patterns: 37,50₺ or ₺37,50 or 37.50 TL
   const match =
-    str.match(/\u20BA\s*([\d.,]+)/) ||
-    str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
+    str.match(/([\d]{1,3}(?:[\.,]\d{3})*[,\.]\d{1,2})\s*(?:₺|TL)/i) ||
+    str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[\.,]\d{3})*[,\.]\d{1,2})/i) ||
     str.match(/([\d]+[.,]\d{2})/);
   if (!match) return null;
   const parsed = Number.parseFloat(
@@ -112,7 +109,7 @@ function carrefourProxyConfigState() {
 }
 
 // ============================================================
-// JINA.AI READER - Primary method for cloud (bypasses IP blocks)
+// JINA.AI READER - Works for Sok (not Carrefour due to Cloudflare)
 // ============================================================
 
 async function fetchViaJinaReader(url) {
@@ -123,156 +120,256 @@ async function fetchViaJinaReader(url) {
   try {
     const response = await fetch(jinaUrl, {
       headers: {
-        Accept: "text/plain, text/html;q=0.9, */*;q=0.8",
+        Accept: "text/plain",
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "X-With-Generated-Alt": "true",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      throw new Error(`Jina reader HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Jina reader HTTP ${response.status}`);
     return await response.text();
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function parseProductListFromJinaText(text, marketName) {
-  const lines = String(text || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
+/**
+ * Parse Sok product listings from Jina.ai markdown output.
+ * Jina returns products in this format:
+ *   ## Mis Uht Süt Yarım Yağlı 1 L 37,50₺
+ * Or as separate lines with images.
+ */
+function parseSokFromJinaText(text) {
   const out = [];
   const seen = new Set();
 
-  // Skip header/navigation lines
-  const skipPatterns = [
-    /^sokmarket$/i,
-    /^carrefour/i,
-    /^sepete ekle/i,
-    /^kabul et/i,
-    /^filtrele/i,
-    /^ana sayfa/i,
-    /^kampanya/i,
-    /^cookie/i,
-    /^gizlilik/i,
-    /^kullanim/i,
-    /^sepette/i,
-    /^toplam/i,
-    /^uye giri/i,
-    /^ara$/i,
-    /^arama$/i,
-    /^sok market$/i,
-    /^sokmarket$/i,
-    /^carrefoursa$/i,
-    /adres\.carrefoursa/i,
-  ];
+  // Pattern 1: Combined name+price in heading (## Product Name 37,50₺)
+  // Using Unicode \u20BA for ₺ symbol - tested and confirmed working
+  const headingPattern = /## (.+? (\d+,\d+)\u20BA)/g;
+  let match;
+  while ((match = headingPattern.exec(text)) !== null) {
+    const fullName = match[1].trim();
+    const priceStr = match[2];
+    const price = Number.parseFloat(
+      priceStr.replace(/\./g, "").replace(",", "."),
+    );
 
-  function shouldSkip(line) {
-    return skipPatterns.some((p) => p.test(line));
-  }
+    if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
 
-  // Strategy: Look for price lines, then find product name before them
-  for (let i = 0; i < lines.length; i += 1) {
-    const price = parsePriceValue(lines[i]);
-    if (!price) continue;
-
-    let name = "";
-    // Search backwards for product name (up to 6 lines)
-    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) {
-      const candidate = lines[j];
-      if (!candidate || candidate.length < 3) continue;
-      if (candidate.length > 200) continue; // Skip very long lines (descriptions)
-      if (parsePriceValue(candidate)) continue; // Skip other price lines
-      if (shouldSkip(candidate)) continue;
-      if (/\d{2}:\d{2}/.test(candidate)) continue; // Skip time patterns
-      name = candidate;
-      break;
-    }
-
-    if (!name) continue;
+    // Remove the price+symbol from the name
+    let name = fullName.replace(/\s+\d+,\d+\s*\u20BA\s*$/, "").trim();
     if (name.length < 3) continue;
 
-    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    // Try to find image URL from nearby lines
-    let image = "";
-    for (
-      let k = Math.max(0, i - 3);
-      k <= Math.min(lines.length - 1, i + 3);
-      k += 1
-    ) {
-      const imgMatch = lines[k].match(
-        /(https?:\/\/[^\s]+\.(jpg|jpeg|png|webp|avif)[^\s]*)/i,
+    // Extract image URL from nearby content
+    const beforeMatch = text.slice(Math.max(0, match.index - 500), match.index);
+    const imgMatch =
+      beforeMatch.match(
+        /!\[Image[^:]*:\s*([^\]]+)\]\((https?:\/\/[^\s)]+product[^\s)]*)\)/i,
+      ) ||
+      beforeMatch.match(
+        /(https?:\/\/[^\s]+product[^\s]+\.(jpg|jpeg|png|webp))/i,
       );
-      if (imgMatch) {
-        image = imgMatch[1];
-        break;
+    const image = imgMatch ? imgMatch[1] || imgMatch[2] || "" : "";
+
+    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ market: "Sok", name: normalizeText(name), price, image });
+    }
+  }
+
+  // Pattern 2: Product name followed by price on same line or next line
+  if (out.length === 0) {
+    const lines = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Skip navigation/filter lines
+      if (
+        /^(kampanyalar|kurumsal|kategoriler|filtre|marka|sokmarket|cepte)/i.test(
+          line,
+        )
+      )
+        continue;
+      if (/^\[?\!\[?image/i.test(line)) continue;
+      if (/^[\-\s]*\[\s*[x\s]*\]/i.test(line)) continue;
+
+      // Check if this line has a price
+      const price = parsePriceValue(line);
+      if (!price) continue;
+
+      // Try to extract name from the same line
+      let name = line
+        .replace(/[\d]{1,3}(?:[\.,]\d{3})*[,\.]\d{1,2}\s*₺/gi, "")
+        .trim();
+      name = name.replace(/^#+\s*/, "").trim();
+
+      // If name is too short, look at previous line
+      if (name.length < 3 && i > 0) {
+        name = lines[i - 1]
+          .replace(/^#+\s*/, "")
+          .replace(/\[\!\[.*$/, "")
+          .trim();
+      }
+
+      if (name.length < 3) continue;
+      if (/^(kampanyalar|kurumsal|kategoriler|filtre|marka)/i.test(name))
+        continue;
+
+      const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+
+        // Find image
+        let image = "";
+        const contextStart = Math.max(0, i - 3);
+        const contextEnd = Math.min(lines.length, i + 2);
+        for (let j = contextStart; j < contextEnd; j++) {
+          const imgMatch = lines[j].match(
+            /\((https?:\/\/[^\s)]+product[^\s)]*)\)/i,
+          );
+          if (imgMatch) {
+            image = imgMatch[1];
+            break;
+          }
+        }
+
+        out.push({ market: "Sok", name: normalizeText(name), price, image });
+      }
+    }
+  }
+
+  return dedupeItems(out);
+}
+
+/**
+ * Parse Carrefour from Jina.ai text output.
+ * Carrefour blocks Jina with Cloudflare, but sometimes the mobile site or
+ * alternative URLs work.
+ */
+function parseCarrefourFromJinaText(text) {
+  const out = [];
+  const seen = new Set();
+
+  // Check if we got blocked by Cloudflare
+  if (
+    /attention required|cloudflare|blocked|captcha|security check/i.test(text)
+  ) {
+    return [];
+  }
+
+  // Pattern: Product name + price in various formats
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Skip non-product lines
+    if (
+      /^(sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie|gizlilik)/i.test(
+        line,
+      )
+    )
+      continue;
+    if (/^\[?\!\[?image/i.test(line)) continue;
+
+    const price = parsePriceValue(line);
+    if (!price) continue;
+
+    let name = line
+      .replace(/[\d]{1,3}(?:[\.,]\d{3})*[,\.]\d{1,2}\s*(?:₺|TL)/gi, "")
+      .trim();
+    name = name.replace(/^#+\s*/, "").trim();
+
+    if (name.length < 3) {
+      // Look at previous lines for product name
+      for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+        const candidate = lines[j]
+          .replace(/^#+\s*/, "")
+          .replace(/\[\!\[.*$/, "")
+          .trim();
+        if (candidate.length >= 3 && !parsePriceValue(candidate)) {
+          if (
+            !/^(sepete ekle|kabul et|filtrele|ana sayfa|kampanya)/i.test(
+              candidate,
+            )
+          ) {
+            name = candidate;
+            break;
+          }
+        }
       }
     }
 
-    out.push({ market: marketName, name: normalizeText(name), price, image });
+    if (name.length < 3) continue;
+
+    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({
+        market: "Carrefour",
+        name: normalizeText(name),
+        price,
+        image: "",
+      });
+    }
   }
 
   return dedupeItems(out);
 }
 
 // ============================================================
-// GOOGLE CUSTOM SEARCH FALLBACK
+// GOOGLE SEARCH FALLBACK (for Carrefour when direct access is blocked)
 // ============================================================
 
-async function fetchViaGoogleSearch(product, market) {
+async function searchViaGoogle(product, market) {
   const site = market === "sok" ? "sokmarket.com.tr" : "carrefoursa.com";
-  const query = `site:${site} ${product} fiyat`;
-  const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const query = `site:${site} "${product}"`;
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=tr&num=20`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const response = await fetch(searchUrl, {
+    const response = await fetch(url, {
       headers: {
         Accept: "text/html",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "tr-TR,tr;q=0.9",
       },
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      throw new Error(`DuckDuckGo search HTTP ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Google search HTTP ${response.status}`);
     return await response.text();
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function parseGoogleSearchResults(html, marketName) {
+function parseGoogleResults(html, marketName) {
   const items = [];
   const seen = new Set();
 
-  // Extract URLs and snippets from DuckDuckGo HTML results
+  // Extract result links and snippets
   const resultRegex =
-    /<a[^>]*class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-
+    /<a[^>]*href="(https?:\/\/[^"]*(?:sokmarket|carrefour)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
   let match;
+
   while ((match = resultRegex.exec(html)) !== null) {
     const url = match[1];
     const title = match[2].replace(/<[^>]+>/g, "").trim();
 
-    if (!url.includes(marketName === "Sok" ? "sokmarket" : "carrefour"))
-      continue;
     if (title.length < 3 || title.length > 150) continue;
+    if (/^(google|cache|translate)/i.test(title)) continue;
 
     const key = title.toLowerCase();
     if (seen.has(key)) continue;
@@ -281,7 +378,75 @@ function parseGoogleSearchResults(html, marketName) {
     items.push({
       market: marketName,
       name: normalizeText(title),
-      price: null, // Price not available from search
+      price: null,
+      image: "",
+      url,
+    });
+  }
+
+  return items;
+}
+
+// ============================================================
+// BING SEARCH FALLBACK
+// ============================================================
+
+async function searchViaBing(product, market) {
+  const site = market === "sok" ? "sokmarket.com.tr" : "carrefoursa.com";
+  const query = `site:${site} "${product}" fiyat`;
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=20`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "text/html",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "tr-TR,tr;q=0.9",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(`Bing search HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseBingResults(html, marketName) {
+  const items = [];
+  const seen = new Set();
+
+  // Bing result titles
+  const titleRegex = /<h2><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
+  let match;
+
+  while ((match = titleRegex.exec(html)) !== null) {
+    const url = match[1];
+    const title = match[2].replace(/<[^>]+>/g, "").trim();
+
+    if (title.length < 3 || title.length > 150) continue;
+    if (!url.includes(marketName === "Sok" ? "sokmarket" : "carrefour"))
+      continue;
+
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    // Try to extract price from snippet
+    const snippetRegex = new RegExp(
+      `<p[^>]*>[^<]*(${marketName === "Sok" ? "sokmarket" : "carrefour"}[^<]*)`,
+      "i",
+    );
+
+    items.push({
+      market: marketName,
+      name: normalizeText(title),
+      price: null,
       image: "",
       url,
     });
@@ -304,7 +469,7 @@ async function createConfiguredPage(browser) {
 
   await page.setExtraHTTPHeaders({
     Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
     "Cache-Control": "max-age=0",
@@ -418,7 +583,6 @@ async function fetchCarrefourHtmlViaProxy(query) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${CARREFOUR_PROXY_API_KEY}`,
       "X-API-Key": CARREFOUR_PROXY_API_KEY,
-      apikey: CARREFOUR_PROXY_API_KEY,
     };
 
     logCarrefourDebug("Proxy request", {
@@ -614,7 +778,7 @@ async function extractCarrefourItemsFromPage(page) {
         name = normalize(firstLine);
       }
 
-      const priceText = `${card.querySelector(".js-variant-discounted-price")?.textContent || ""} ${card.querySelector(".price-cont")?.textContent || ""} ${card.querySelector(".item-price")?.textContent || ""} ${rawText}`;
+      const priceText = `${card.querySelector(".js-variant-discounted-price")?.textContent || ""} ${card.querySelector(".price-cont")?.textContent || ""} ${rawText}`;
       const price = parsePrice(priceText);
       if (!name || !Number.isFinite(price) || price <= 0 || price > 5000)
         return;
@@ -625,7 +789,6 @@ async function extractCarrefourItemsFromPage(page) {
         img?.src ||
         img?.getAttribute("data-src") ||
         img?.getAttribute("data-lazy") ||
-        img?.getAttribute("srcset")?.split(" ")[0] ||
         "";
 
       const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
@@ -659,7 +822,7 @@ async function scrapeCarrefourDirect(query) {
   const page = await createConfiguredPage(browser);
 
   try {
-    console.log(`[Carrefour] Puppeteer: Navigating to search page...`);
+    console.log(`[Carrefour] Puppeteer: Navigating...`);
     await delay(1000 + Math.random() * 1000);
 
     try {
@@ -678,13 +841,7 @@ async function scrapeCarrefourDirect(query) {
 
     try {
       await page.evaluate(() => {
-        const labels = [
-          "kabul et",
-          "accept",
-          "tamam",
-          "onayla",
-          "t\u00fcm\u00fcn\u00fc kabul et",
-        ];
+        const labels = ["kabul et", "accept", "tamam", "onayla"];
         const nodes = Array.from(
           document.querySelectorAll("button, a, [role='button']"),
         );
@@ -708,7 +865,7 @@ async function scrapeCarrefourDirect(query) {
       new Promise((resolve) => setTimeout(() => resolve(false), 10000)),
     ]);
 
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 5; i++) {
       await page.evaluate(() => window.scrollBy(0, 600 + Math.random() * 500));
       await delay(800 + Math.random() * 600);
     }
@@ -727,7 +884,7 @@ async function scrapeCarrefourDirect(query) {
 }
 
 // ============================================================
-// SOK SCRAPING - Jina reader primary, Puppeteer for localhost
+// SOK SCRAPING
 // ============================================================
 
 async function scrapeSokViaJina(product) {
@@ -735,21 +892,29 @@ async function scrapeSokViaJina(product) {
     .trim()
     .toLowerCase();
   const variants = [query];
-  // Add Turkish character variants
   if (query.includes("sut")) variants.push(query.replace("sut", "s\u00fct"));
   if (query.includes("cilek"))
     variants.push(query.replace("cilek", "\u00e7ilek"));
+  if (query.includes("kasar"))
+    variants.push(query.replace("kasar", "ka\u015far"));
 
   for (const q of variants) {
     console.log(`[Sok] Jina reader searching: ${q}`);
     try {
       const url = `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(q)}`;
       const text = await fetchViaJinaReader(url);
-      const items = parseProductListFromJinaText(text, "Sok");
+
+      if (/attention required|cloudflare|blocked/i.test(text)) {
+        console.log(`[Sok] Jina reader blocked by Cloudflare`);
+        continue;
+      }
+
+      const items = parseSokFromJinaText(text);
       if (items.length > 0) {
         console.log(`[Sok] Jina reader found: ${items.length} items`);
         return items;
       }
+      console.log(`[Sok] Jina reader parsed 0 items, trying next variant...`);
     } catch (err) {
       console.log(`[Sok] Jina reader error: ${err.message}`);
     }
@@ -816,8 +981,6 @@ async function scrapeSokPuppeteer(product) {
       new Promise((resolve) => setTimeout(() => resolve(false), 8000)),
     ]);
 
-    await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
-    await delay(1000 + Math.random() * 500);
     await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
     await delay(1000 + Math.random() * 500);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -910,20 +1073,48 @@ async function scrapeSokPuppeteer(product) {
 }
 
 async function scrapeSok(product) {
-  // On cloud, use Jina reader (bypasses datacenter IP blocks)
-  if (IS_CLOUD) {
-    console.log("[Sok] Using Jina reader (cloud mode)");
-    const jinaItems = await scrapeSokViaJina(product);
-    if (jinaItems.length > 0) return jinaItems;
+  // Strategy 1: Jina.ai reader (works on cloud, bypasses IP blocks)
+  const jinaItems = await scrapeSokViaJina(product);
+  if (jinaItems.length > 0) return jinaItems;
+
+  // Strategy 2: Puppeteer (works on localhost with residential IP)
+  if (!IS_CLOUD) {
+    console.log("[Sok] Jina failed, trying Puppeteer (localhost)...");
+    return await scrapeSokPuppeteer(product);
   }
 
-  // On localhost or as fallback, use Puppeteer
-  console.log("[Sok] Using Puppeteer (localhost/fallback mode)");
-  return await scrapeSokPuppeteer(product);
+  // Strategy 3: Google search fallback (cloud)
+  console.log("[Sok] Trying Google search fallback...");
+  try {
+    const html = await searchViaGoogle(product, "sok");
+    const googleItems = parseGoogleResults(html, "Sok");
+    if (googleItems.length > 0) {
+      console.log(`[Sok] Google search found: ${googleItems.length} items`);
+      return googleItems;
+    }
+  } catch (err) {
+    console.log(`[Sok] Google search error: ${err.message}`);
+  }
+
+  // Strategy 4: Bing search fallback (cloud)
+  console.log("[Sok] Trying Bing search fallback...");
+  try {
+    const html = await searchViaBing(product, "sok");
+    const bingItems = parseBingResults(html, "Sok");
+    if (bingItems.length > 0) {
+      console.log(`[Sok] Bing search found: ${bingItems.length} items`);
+      return bingItems;
+    }
+  } catch (err) {
+    console.log(`[Sok] Bing search error: ${err.message}`);
+  }
+
+  console.log("[Sok] Results: 0 items");
+  return [];
 }
 
 // ============================================================
-// CARREFOUR SCRAPING - Jina reader primary, Puppeteer for localhost
+// CARREFOUR SCRAPING
 // ============================================================
 
 async function scrapeCarrefourViaJina(product) {
@@ -934,7 +1125,7 @@ async function scrapeCarrefourViaJina(product) {
     try {
       const url = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
       const text = await fetchViaJinaReader(url);
-      const items = parseProductListFromJinaText(text, "Carrefour");
+      const items = parseCarrefourFromJinaText(text);
       if (items.length > 0) {
         console.log(`[Carrefour] Jina reader found: ${items.length} items`);
         return items;
@@ -949,7 +1140,7 @@ async function scrapeCarrefourViaJina(product) {
 async function scrapeCarrefour(product) {
   const cfg = carrefourProxyConfigState();
 
-  // Priority 1: Proxy (if configured)
+  // Priority 1: Proxy (if configured - best for Carrefour)
   if (cfg.mode === "required" || cfg.mode === "fallback") {
     const queries = carrefourQueryVariants(product);
     for (const query of queries) {
@@ -971,16 +1162,47 @@ async function scrapeCarrefour(product) {
     }
   }
 
-  // Priority 2: On cloud, use Jina reader (bypasses datacenter IP blocks)
-  if (IS_CLOUD && (cfg.mode === "off" || cfg.mode === "fallback")) {
-    console.log("[Carrefour] Using Jina reader (cloud mode)");
+  // Priority 2: Jina.ai reader (sometimes works for Carrefour)
+  if (cfg.mode === "off" || cfg.mode === "fallback") {
     const jinaItems = await scrapeCarrefourViaJina(product);
     if (jinaItems.length > 0) return jinaItems;
   }
 
-  // Priority 3: Puppeteer (works on localhost with residential IP)
-  if (cfg.mode === "off" || cfg.mode === "fallback" || !IS_CLOUD) {
-    console.log("[Carrefour] Using Puppeteer (localhost/fallback mode)");
+  // Priority 3: Google search fallback
+  if (cfg.mode === "off" || cfg.mode === "fallback" || IS_CLOUD) {
+    console.log("[Carrefour] Trying Google search fallback...");
+    try {
+      const html = await searchViaGoogle(product, "carrefour");
+      const googleItems = parseGoogleResults(html, "Carrefour");
+      if (googleItems.length > 0) {
+        console.log(
+          `[Carrefour] Google search found: ${googleItems.length} items`,
+        );
+        return googleItems;
+      }
+    } catch (err) {
+      console.log(`[Carrefour] Google search error: ${err.message}`);
+    }
+  }
+
+  // Priority 4: Bing search fallback
+  if (cfg.mode === "off" || cfg.mode === "fallback" || IS_CLOUD) {
+    console.log("[Carrefour] Trying Bing search fallback...");
+    try {
+      const html = await searchViaBing(product, "carrefour");
+      const bingItems = parseBingResults(html, "Carrefour");
+      if (bingItems.length > 0) {
+        console.log(`[Carrefour] Bing search found: ${bingItems.length} items`);
+        return bingItems;
+      }
+    } catch (err) {
+      console.log(`[Carrefour] Bing search error: ${err.message}`);
+    }
+  }
+
+  // Priority 5: Puppeteer (only on localhost)
+  if (cfg.mode === "off" || cfg.mode === "fallback") {
+    console.log("[Carrefour] Trying Puppeteer (localhost only)...");
     try {
       const directItems = await scrapeCarrefourDirect(product);
       if (directItems.length > 0) return directItems;
@@ -989,7 +1211,7 @@ async function scrapeCarrefour(product) {
     }
   }
 
-  // Priority 4: Jina mirror fallback (always try)
+  // Priority 6: Jina mirror fallback
   if (CARREFOUR_MIRROR_FALLBACK) {
     const queries = carrefourQueryVariants(product);
     for (const query of queries) {
@@ -998,15 +1220,11 @@ async function scrapeCarrefour(product) {
         const targetUrl = `http://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
         const jinaUrl = `https://r.jina.ai/${targetUrl}`;
         const response = await fetch(jinaUrl, {
-          headers: {
-            Accept: "text/plain, text/html;q=0.9, */*;q=0.8",
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-          },
+          headers: { Accept: "text/plain", "User-Agent": "Mozilla/5.0" },
         });
         if (response.ok) {
           const raw = await response.text();
-          const mirrorItems = parseProductListFromJinaText(raw, "Carrefour");
+          const mirrorItems = parseCarrefourFromJinaText(raw);
           if (mirrorItems.length > 0) {
             console.log(
               `[Carrefour] Jina mirror found: ${mirrorItems.length} items`,
