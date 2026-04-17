@@ -9,14 +9,21 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const CARREFOUR_PROXY_MODE = String(process.env.CARREFOUR_PROXY_MODE || "off")
   .trim()
   .toLowerCase();
-const CARREFOUR_PROXY_ENDPOINT = String(process.env.CARREFOUR_PROXY_ENDPOINT || "").trim();
-const CARREFOUR_PROXY_API_KEY = String(process.env.CARREFOUR_PROXY_API_KEY || "").trim();
-const CARREFOUR_PROXY_REGION = String(process.env.CARREFOUR_PROXY_REGION || "TR").trim();
+const CARREFOUR_PROXY_ENDPOINT = String(
+  process.env.CARREFOUR_PROXY_ENDPOINT || "",
+).trim();
+const CARREFOUR_PROXY_API_KEY = String(
+  process.env.CARREFOUR_PROXY_API_KEY || "",
+).trim();
+const CARREFOUR_PROXY_REGION = String(
+  process.env.CARREFOUR_PROXY_REGION || "TR",
+).trim();
 const CARREFOUR_PROXY_TIMEOUT_MS = Number.parseInt(
   process.env.CARREFOUR_PROXY_TIMEOUT_MS || "30000",
   10,
 );
-const CARREFOUR_DEBUG = String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
+const CARREFOUR_DEBUG =
+  String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
 const CARREFOUR_MIRROR_FALLBACK =
   String(process.env.CARREFOUR_MIRROR_FALLBACK || "1").trim() !== "0";
 
@@ -30,7 +37,9 @@ function logCarrefourDebug(message, extra) {
 }
 
 function normalizeText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parsePriceValue(text) {
@@ -41,7 +50,9 @@ function parsePriceValue(text) {
     str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
     str.match(/([\d]+[.,]\d{2})/);
   if (!match) return null;
-  const parsed = Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
+  const parsed = Number.parseFloat(
+    String(match[1]).replace(/\./g, "").replace(",", "."),
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -64,7 +75,9 @@ function dedupeItems(items) {
 }
 
 function carrefourQueryVariants(product) {
-  const source = String(product || "").trim().toLowerCase();
+  const source = String(product || "")
+    .trim()
+    .toLowerCase();
   if (!source) return [];
   const variants = new Set([source]);
   const pairs = [
@@ -95,10 +108,35 @@ async function createConfiguredPage(browser) {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
   );
-  await page.setViewport({ width: 1440, height: 2200 });
+  await page.setViewport({ width: 1920, height: 1080 });
   await page.setExtraHTTPHeaders({
-    "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+    Connection: "keep-alive",
+    DNT: "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Ch-Ua": `"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"`,
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": `"Windows"`,
   });
+
+  // Override navigator.webdriver to avoid bot detection
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    window.chrome = { runtime: {} };
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) =>
+      parameters.name === "notifications"
+        ? Promise.resolve({ state: Notification.permission })
+        : originalQuery(parameters);
+  });
+
   return page;
 }
 
@@ -118,8 +156,13 @@ function extractHtmlFromProxyPayload(data) {
   }
   if (Array.isArray(data.results)) {
     for (const item of data.results) {
-      if (item && typeof item.html === "string" && item.html.includes("<html")) return item.html;
-      if (item && typeof item.content === "string" && item.content.includes("<html"))
+      if (item && typeof item.html === "string" && item.html.includes("<html"))
+        return item.html;
+      if (
+        item &&
+        typeof item.content === "string" &&
+        item.content.includes("<html")
+      )
         return item.content;
     }
   }
@@ -133,7 +176,10 @@ async function fetchCarrefourHtmlViaProxy(query) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(5000, CARREFOUR_PROXY_TIMEOUT_MS));
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.max(5000, CARREFOUR_PROXY_TIMEOUT_MS),
+  );
   try {
     let requestUrl = CARREFOUR_PROXY_ENDPOINT;
     let method = "POST";
@@ -193,7 +239,10 @@ async function fetchCarrefourHtmlViaProxy(query) {
       throw new Error("proxy returned no html");
     }
 
-    logCarrefourDebug("Proxy response html snippet", html.slice(0, 180).replace(/\s+/g, " "));
+    logCarrefourDebug(
+      "Proxy response html snippet",
+      html.slice(0, 180).replace(/\s+/g, " "),
+    );
     return html;
   } finally {
     clearTimeout(timeout);
@@ -213,16 +262,17 @@ function parseCarrefourHtml(html) {
 
   for (const card of cards) {
     const nameMatch =
-      card.match(/<h3[^>]*class="[^"]*item-name[^"]*"[^>]*>([\s\S]*?)<\/h3>/i) ||
-      card.match(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/i);
+      card.match(
+        /<h3[^>]*class="[^"]*item-name[^"]*"[^>]*>([\s\S]*?)<\/h3>/i,
+      ) || card.match(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/i);
     const name = normalizeText(
-      (nameMatch?.[1] || "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " "),
+      (nameMatch?.[1] || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " "),
     );
 
     const priceCandidate =
-      card.match(/js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card.match(
+        /js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i,
+      )?.[1] ||
       card.match(/price-cont[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
       card;
     const price = parsePriceValue(
@@ -267,7 +317,8 @@ function parseCarrefourHtml(html) {
       const candidate = lines[j];
       if (!candidate || candidate.length < 3) continue;
       if (parsePriceValue(candidate)) continue;
-      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate)) continue;
+      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate))
+        continue;
       name = candidate;
       break;
     }
@@ -283,7 +334,10 @@ function parseCarrefourHtml(html) {
 
 async function extractCarrefourItemsFromPage(page) {
   const items = await page.evaluate(() => {
-    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const normalize = (value) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
     const parsePrice = (text) => {
       const str = String(text || "");
       const match =
@@ -291,7 +345,9 @@ async function extractCarrefourItemsFromPage(page) {
         str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
         str.match(/([\d]+[.,]\d{2})/);
       if (!match) return null;
-      return Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
+      return Number.parseFloat(
+        String(match[1]).replace(/\./g, "").replace(",", "."),
+      );
     };
 
     const cards = document.querySelectorAll(
@@ -311,7 +367,11 @@ async function extractCarrefourItemsFromPage(page) {
         normalize(card.querySelector("h3, h2, h4")?.textContent);
 
       if (!name) {
-        const firstLine = rawText.split("\n").map((s) => s.trim()).find((s) => s.length > 2) || "";
+        const firstLine =
+          rawText
+            .split("\n")
+            .map((s) => s.trim())
+            .find((s) => s.length > 2) || "";
         name = normalize(firstLine);
       }
 
@@ -321,7 +381,8 @@ async function extractCarrefourItemsFromPage(page) {
         `${card.querySelector(".item-price")?.textContent || ""} ` +
         rawText;
       const price = parsePrice(priceText);
-      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000) return;
+      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000)
+        return;
 
       const img = card.querySelector("img");
       const image =
@@ -347,21 +408,38 @@ async function extractCarrefourItemsFromPage(page) {
 
 async function scrapeCarrefourDirect(query) {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-extensions",
+      "--disable-infobars",
+    ],
   });
   const page = await createConfiguredPage(browser);
 
   try {
-    await gotoFast(page, `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`);
-    await delay(1600);
+    // Add random delay before navigation to appear more human
+    await delay(800 + Math.random() * 600);
+
+    await gotoFast(
+      page,
+      `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
+    );
+
+    // Wait for page to load with random delays
+    await delay(2000 + Math.random() * 1000);
 
     await page
       .evaluate(() => {
         const labels = ["kabul et", "accept", "tamam", "onayla"];
         const nodes = Array.from(document.querySelectorAll("button, a, span"));
         for (const node of nodes) {
-          const text = String(node.textContent || "").trim().toLowerCase();
+          const text = String(node.textContent || "")
+            .trim()
+            .toLowerCase();
           if (labels.some((label) => text === label || text.includes(label))) {
             node.click();
           }
@@ -369,9 +447,10 @@ async function scrapeCarrefourDirect(query) {
       })
       .catch(() => {});
 
-    for (let i = 0; i < 3; i += 1) {
-      await page.evaluate(() => window.scrollBy(0, 1100));
-      await delay(700);
+    // Simulate human-like scrolling with random delays
+    for (let i = 0; i < 4; i += 1) {
+      await page.evaluate(() => window.scrollBy(0, 800 + Math.random() * 400));
+      await delay(600 + Math.random() * 500);
     }
 
     const items = await extractCarrefourItemsFromPage(page);
@@ -401,7 +480,8 @@ function parseCarrefourMirrorText(text) {
       const candidate = lines[j];
       if (!candidate || candidate.length < 3) continue;
       if (parsePriceValue(candidate)) continue;
-      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate)) continue;
+      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya/i.test(candidate))
+        continue;
       name = candidate;
       break;
     }
@@ -409,7 +489,12 @@ function parseCarrefourMirrorText(text) {
     const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ market: "Carrefour", name: normalizeText(name), price, image: "" });
+    out.push({
+      market: "Carrefour",
+      name: normalizeText(name),
+      price,
+      image: "",
+    });
   }
   return dedupeItems(out);
 }
@@ -462,7 +547,8 @@ async function scrapeCarrefour(product) {
 
       if (cfg.mode === "required") {
         console.log("[Carrefour] Results: 0 items");
-        if (proxyError) logCarrefourDebug("Required mode ended with proxy error");
+        if (proxyError)
+          logCarrefourDebug("Required mode ended with proxy error");
         continue;
       }
     }
@@ -499,20 +585,34 @@ async function scrapeCarrefour(product) {
 
 async function scrapeSok(product) {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-extensions",
+      "--disable-infobars",
+    ],
   });
   const page = await createConfiguredPage(browser);
 
   try {
     console.log(`[Sok] Searching for: ${product}`);
-    await gotoFast(page, `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(product)}`);
-    await delay(2200);
-    await page.evaluate(() => window.scrollBy(0, 1200));
+    await delay(600 + Math.random() * 500);
+    await gotoFast(
+      page,
+      `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(product)}`,
+    );
+    await delay(1800 + Math.random() * 800);
+    await page.evaluate(() => window.scrollBy(0, 1000 + Math.random() * 300));
     await delay(900);
 
     const items = await page.evaluate(() => {
-      const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const normalize = (value) =>
+        String(value || "")
+          .replace(/\s+/g, " ")
+          .trim();
       const parsePrice = (text) => {
         const str = String(text || "");
         const match =
@@ -520,7 +620,9 @@ async function scrapeSok(product) {
           str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
           str.match(/([\d]+[.,]\d{2})/);
         if (!match) return null;
-        return Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
+        return Number.parseFloat(
+          String(match[1]).replace(/\./g, "").replace(",", "."),
+        );
       };
 
       const out = [];
@@ -543,7 +645,11 @@ async function scrapeSok(product) {
         }
       }
       if (!nodes.length) {
-        nodes = Array.from(document.querySelectorAll('div[class*="product"], div[class*="Product"]'));
+        nodes = Array.from(
+          document.querySelectorAll(
+            'div[class*="product"], div[class*="Product"]',
+          ),
+        );
       }
 
       nodes.forEach((el) => {
@@ -553,7 +659,13 @@ async function scrapeSok(product) {
         if (!Number.isFinite(price) || price <= 0 || price > 5000) return;
 
         let name = "";
-        const nameSelectors = ["h2", "h3", ".name", '[class*="name"]', '[class*="title"]'];
+        const nameSelectors = [
+          "h2",
+          "h3",
+          ".name",
+          '[class*="name"]',
+          '[class*="title"]',
+        ];
         for (const sel of nameSelectors) {
           const nameEl = el.querySelector(sel);
           if (nameEl?.innerText) {
@@ -607,16 +719,22 @@ async function compareIngredients(ingredients) {
       scrapeCarrefour(name).catch(() => []),
     ]);
 
-    const sokItem = Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
+    const sokItem =
+      Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
     const carrefourItem =
-      Array.isArray(carrefourItems) && carrefourItems.length > 0 ? carrefourItems[0] : null;
+      Array.isArray(carrefourItems) && carrefourItems.length > 0
+        ? carrefourItems[0]
+        : null;
 
     const sokUnit = sokItem ? Number(sokItem.price) : null;
     const carrefourUnit = carrefourItem ? Number(carrefourItem.price) : null;
 
-    const sokCost = sokUnit !== null && Number.isFinite(sokUnit) ? sokUnit * quantity : null;
+    const sokCost =
+      sokUnit !== null && Number.isFinite(sokUnit) ? sokUnit * quantity : null;
     const carrefourCost =
-      carrefourUnit !== null && Number.isFinite(carrefourUnit) ? carrefourUnit * quantity : null;
+      carrefourUnit !== null && Number.isFinite(carrefourUnit)
+        ? carrefourUnit * quantity
+        : null;
 
     if (sokCost !== null) sokTotal += sokCost;
     if (carrefourCost !== null) carrefourTotal += carrefourCost;
@@ -666,4 +784,9 @@ async function searchMultiple(product) {
   };
 }
 
-module.exports = { compareIngredients, searchProduct, searchMultiple, parseCarrefourHtml };
+module.exports = {
+  compareIngredients,
+  searchProduct,
+  searchMultiple,
+  parseCarrefourHtml,
+};
