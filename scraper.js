@@ -1,208 +1,489 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
 puppeteer.use(StealthPlugin());
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const NAV_TIMEOUT_MS = 60000;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const IS_CLOUD = Boolean(
   process.env.RENDER ||
   process.env.PORT ||
-  process.env.NODE_ENV === "production"
+  process.env.NODE_ENV === "production" ||
+  process.env.DYNO,
 );
 
-// 🔥 REQUIRED for Carrefour on Render
 const CARREFOUR_SCRAPER_SERVICE = String(
   process.env.CARREFOUR_SCRAPER_SERVICE || ""
 ).trim();
 
-// ------------------ HELPERS ------------------
+const CARREFOUR_DEBUG =
+  String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
 
-function normalizeText(v) {
-  return String(v || "").replace(/\s+/g, " ").trim();
+function logCarrefourDebug(message, extra) {
+  if (!CARREFOUR_DEBUG) return;
+  console.log(`[Carrefour][Debug] ${message}`, extra || "");
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function improveSearchQuery(q) {
   return String(q || "")
     .toLowerCase()
-    .replace("milk", "süt")
-    .replace("cheese", "peynir")
-    .replace("yogurt", "yoğurt")
-    .trim();
+    .trim()
+    .replace(/\bmilk\b/g, "süt")
+    .replace(/\bcheese\b/g, "peynir")
+    .replace(/\byogurt\b/g, "yoğurt")
+    .replace(/\bsut\b/g, "süt")
+    .replace(/\byogurt\b/g, "yoğurt")
+    .replace(/\bkasar\b/g, "kaşar")
+    .replace(/\bcilek\b/g, "çilek");
 }
 
-function parsePrice(text) {
+function parsePriceValue(text) {
   if (!text) return null;
-  const m =
-    text.match(/([\d]+[.,]\d{2})\s*(₺|TL)/i) ||
-    text.match(/(₺)\s*([\d]+[.,]\d{2})/) ||
-    text.match(/([\d]+[.,]\d{2})/);
-  if (!m) return null;
-  const val = m[1] || m[2];
-  return parseFloat(val.replace(",", "."));
+  const str = String(text);
+
+  const match =
+    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:₺|TL)/i) ||
+    str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+    str.match(/([\d]+[.,]\d{2})/);
+
+  if (!match) return null;
+
+  const parsed = Number.parseFloat(
+    String(match[1]).replace(/\./g, "").replace(",", "."),
+  );
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function dedupe(items) {
+function dedupeItems(items) {
   const map = new Map();
-  for (const i of items) {
-    if (!i.name || !i.price) continue;
-    const key = i.name.toLowerCase() + i.price;
-    if (!map.has(key)) map.set(key, i);
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const name = normalizeText(item.name);
+    const price = Number(item.price);
+    const image = normalizeText(item.image);
+
+    if (!name || name.length < 2) continue;
+    if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
+
+    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+    if (!map.has(key)) {
+      map.set(key, { market: item.market, name, price, image });
+    } else if (!map.get(key).image && image) {
+      map.set(key, { market: item.market, name, price, image });
+    }
   }
+
   return [...map.values()];
 }
 
-// ------------------ ŞOK ------------------
+function carrefourQueryVariants(product) {
+  const source = improveSearchQuery(product);
+  if (!source) return [];
 
-async function fetchJina(url) {
-  const res = await fetch(`https://r.jina.ai/${url}`);
-  return await res.text();
+  const variants = new Set([source]);
+  const pairs = [
+    ["sut", "süt"],
+    ["yogurt", "yoğurt"],
+    ["cilek", "çilek"],
+    ["kasar", "kaşar"],
+    ["kofte", "köfte"],
+  ];
+
+  for (const [a, b] of pairs) {
+    if (source.includes(a)) variants.add(source.replaceAll(a, b));
+  }
+
+  return [...variants];
 }
 
-function parseSok(text) {
-  const items = [];
-  const regex =
-    /\[!\[Image.*?\]\((.*?)\).*?## (.*?) (\d+,\d+)₺/g;
+async function fetchViaJinaReader(url) {
+  const jinaUrl = `https://r.jina.ai/${url}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000);
 
-  let m;
-  while ((m = regex.exec(text))) {
-    items.push({
-      market: "Sok",
-      name: normalizeText(m[2]),
-      price: parseFloat(m[3].replace(",", ".")),
-      image: m[1],
+  try {
+    const response = await fetch(jinaUrl, {
+      headers: {
+        Accept: "text/plain",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      signal: controller.signal,
     });
+
+    if (!response.ok) throw new Error(`Jina reader HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
   }
-  return dedupe(items);
+}
+
+function parseSokFromJinaText(text) {
+  const out = [];
+  const seen = new Set();
+
+  const productPattern =
+    /\[!\[Image \d+: product-thumb\]\((https?:\/\/[^)]+)\)[^\]]*## ([^\]]+?)\s+(\d+,\d+)\u20BA[^\]]*\]/g;
+
+  let match;
+  while ((match = productPattern.exec(text)) !== null) {
+    const imageUrl = match[1];
+    const fullName = match[2].trim();
+    const price = Number.parseFloat(match[3].replace(",", "."));
+
+    if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
+    if (fullName.length < 3) continue;
+
+    const key = `${fullName.toLowerCase()}|${price.toFixed(2)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({
+        market: "Sok",
+        name: normalizeText(fullName),
+        price,
+        image: imageUrl,
+      });
+    }
+  }
+
+  return dedupeItems(out);
+}
+
+function parseCarrefourHtml(html) {
+  const normalizedHtml = String(html || "");
+  if (!normalizedHtml) return [];
+
+  if (/attention required|cloudflare|captcha|security check|blocked/i.test(normalizedHtml)) {
+    return [];
+  }
+
+  const items = [];
+  const seen = new Set();
+
+  const cardPatterns = [
+    /<li[^>]*data-testid="product-card"[^>]*>[\s\S]*?<\/li>/gi,
+    /<div[^>]*class="[^"]*product-card[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<a[^>]*href="[^"]*\/product[^"]*"[^>]*>[\s\S]*?<\/a>/gi,
+  ];
+
+  let cards = [];
+  for (const pattern of cardPatterns) {
+    cards = normalizedHtml.match(pattern) || [];
+    if (cards.length > 0) break;
+  }
+
+  for (const card of cards) {
+    const nameMatch =
+      card.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i) ||
+      card.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i) ||
+      card.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i);
+
+    const name = normalizeText(
+      (nameMatch?.[1] || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " "),
+    );
+
+    const priceCandidate =
+      card.match(/js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card.match(/price-cont[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card.match(/class="[^"]*price[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card;
+
+    const price = parsePriceValue(
+      String(priceCandidate || "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " "),
+    );
+
+    const imageMatch = card.match(/<img[^>]+(?:src|data-src|data-lazy)="([^"]+)"/i);
+    const image = normalizeText(imageMatch?.[1] || "");
+
+    if (!name || !price) continue;
+
+    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    items.push({ market: "Carrefour", name, price, image });
+  }
+
+  if (items.length > 0) return dedupeItems(items);
+
+  const text = normalizeText(
+    normalizedHtml
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, "\n"),
+  );
+
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const textItems = [];
+  const textSeen = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const price = parsePriceValue(lines[i]);
+    if (!price) continue;
+
+    let name = "";
+    for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+      const candidate = lines[j];
+      if (!candidate || candidate.length < 2) continue;
+      if (parsePriceValue(candidate)) continue;
+      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie/i.test(candidate)) continue;
+      name = candidate;
+      break;
+    }
+
+    if (!name) continue;
+
+    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+    if (textSeen.has(key)) continue;
+
+    textSeen.add(key);
+    textItems.push({ market: "Carrefour", name, price, image: "" });
+  }
+
+  return dedupeItems(textItems);
+}
+
+async function extractCarrefourItemsFromPage(page) {
+  const items = await page.evaluate(() => {
+    const normalize = (value) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const parsePrice = (text) => {
+      const str = String(text || "");
+      const match =
+        str.match(/\u20BA\s*([\d.,]+)/) ||
+        str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
+        str.match(/([\d]+[.,]\d{2})/);
+      if (!match) return null;
+      return Number.parseFloat(
+        String(match[1]).replace(/\./g, "").replace(",", "."),
+      );
+    };
+
+    const selectors = [
+      ".product-listing-item",
+      ".product-card",
+      '.item.product-card',
+      '[class*="product-listing-item"]',
+      '[class*="product-card"]',
+      '[class*="productCard"]',
+      'li[class*="product"]',
+      'a[href*="/product/"]',
+    ];
+
+    let cards = [];
+    for (const sel of selectors) {
+      const found = document.querySelectorAll(sel);
+      if (found.length > 0) {
+        cards = Array.from(found);
+        break;
+      }
+    }
+
+    const out = [];
+    const seen = new Set();
+
+    cards.forEach((card) => {
+      const rawText = String(card.innerText || "").trim();
+      if (!rawText) return;
+
+      let name =
+        normalize(card.querySelector(".item-name")?.textContent) ||
+        normalize(card.querySelector("[class*='item-name']")?.textContent) ||
+        normalize(card.querySelector("[class*='product-name']")?.textContent) ||
+        normalize(card.querySelector("h3, h2, h4")?.textContent);
+
+      if (!name) {
+        const firstLine =
+          rawText
+            .split("\n")
+            .map((s) => s.trim())
+            .find((s) => s.length > 2) || "";
+        name = normalize(firstLine);
+      }
+
+      const priceText =
+        `${card.querySelector(".js-variant-discounted-price")?.textContent || ""} ` +
+        `${card.querySelector(".price-cont")?.textContent || ""} ` +
+        rawText;
+
+      const price = parsePrice(priceText);
+      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000) return;
+
+      const img = card.querySelector("img");
+      const image =
+        img?.currentSrc ||
+        img?.src ||
+        img?.getAttribute("data-src") ||
+        img?.getAttribute("data-lazy") ||
+        "";
+
+      const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ market: "Carrefour", name, price, image });
+      }
+    });
+
+    return out;
+  });
+
+  return dedupeItems(items);
+}
+
+async function fetchCarrefourViaScraperService(query) {
+  if (!CARREFOUR_SCRAPER_SERVICE) {
+    throw new Error("CARREFOUR_SCRAPER_SERVICE is missing");
+  }
+
+  const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+  const serviceUrl = CARREFOUR_SCRAPER_SERVICE.replace(
+    "{URL}",
+    encodeURIComponent(targetUrl),
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(serviceUrl, {
+      headers: { Accept: "text/html" },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(`scraper service HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function scrapeSok(product) {
   const query = improveSearchQuery(product);
-  try {
-    const url = `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}`;
-    const text = await fetchJina(url);
-    return parseSok(text);
-  } catch {
-    return [];
-  }
-}
+  const variants = [query];
 
-// ------------------ CARREFOUR ------------------
+  if (query.includes("sut")) variants.push(query.replace("sut", "süt"));
+  if (query.includes("cilek")) variants.push(query.replace("cilek", "çilek"));
+  if (query.includes("kasar")) variants.push(query.replace("kasar", "kaşar"));
 
-async function fetchCarrefourViaAPI(query) {
-  const target = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
-  const url = CARREFOUR_SCRAPER_SERVICE.replace(
-    "{URL}",
-    encodeURIComponent(target)
-  );
+  for (const q of variants) {
+    try {
+      const url = `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(q)}`;
+      const text = await fetchViaJinaReader(url);
+      if (/attention required|cloudflare|blocked/i.test(text)) continue;
 
-  const res = await fetch(url);
-  return await res.text();
-}
-
-function parseCarrefour(html) {
-  const items = [];
-  const seen = new Set();
-
-  const cards =
-    html.match(/data-testid="product-card"[\s\S]*?<\/li>/g) || [];
-
-  for (const c of cards) {
-    const name =
-      c.match(/<h3.*?>(.*?)<\/h3>/)?.[1] ||
-      c.match(/<h2.*?>(.*?)<\/h2>/)?.[1];
-
-    const price = parsePrice(c);
-
-    const img = c.match(/<img.*?src="(.*?)"/)?.[1];
-
-    if (!name || !price) continue;
-
-    const key = name + price;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    items.push({
-      market: "Carrefour",
-      name: normalizeText(name.replace(/<.*?>/g, "")),
-      price,
-      image: img || "",
-    });
+      const items = parseSokFromJinaText(text);
+      if (items.length > 0) return items;
+    } catch (err) {
+      console.log(`[Sok] Jina error: ${err.message}`);
+    }
   }
 
-  return dedupe(items);
+  return [];
+}
+
+async function scrapeCarrefourViaJina(product) {
+  const queries = carrefourQueryVariants(product);
+
+  for (const query of queries) {
+    try {
+      const url = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+      const text = await fetchViaJinaReader(url);
+      const items = parseCarrefourHtml(text);
+      if (items.length > 0) return items;
+    } catch (err) {
+      console.log(`[Carrefour] Jina error: ${err.message}`);
+    }
+  }
+
+  return [];
 }
 
 async function scrapeCarrefour(product) {
   const query = improveSearchQuery(product);
 
-  // 🔴 CLOUD (Render) → MUST use API
   if (IS_CLOUD) {
     if (!CARREFOUR_SCRAPER_SERVICE) {
-      console.log("❌ Missing CARREFOUR_SCRAPER_SERVICE");
+      console.log("[Carrefour] Missing scraper service on cloud");
       return [];
     }
 
     try {
-      const html = await fetchCarrefourViaAPI(query);
-      return parseCarrefour(html);
-    } catch {
-      return [];
+      const html = await fetchCarrefourViaScraperService(query);
+      const items = parseCarrefourHtml(html);
+      if (items.length > 0) return items;
+    } catch (err) {
+      console.log(`[Carrefour] Scraper service error: ${err.message}`);
     }
-  }
 
-  // 🟢 LOCALHOST only
-  try {
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
+    try {
+      const items = await scrapeCarrefourViaJina(query);
+      if (items.length > 0) return items;
+    } catch (err) {
+      console.log(`[Carrefour] Jina fallback error: ${err.message}`);
+    }
 
-    await page.goto(
-      `https://www.carrefoursa.com/search/?q=${query}`,
-      { waitUntil: "domcontentloaded" }
-    );
-
-    await delay(3000);
-
-    const items = await page.evaluate(() => {
-      const out = [];
-      document.querySelectorAll("[data-testid='product-card']").forEach((el) => {
-        const name = el.innerText.split("\n")[0];
-        const priceText = el.innerText;
-        const match = priceText.match(/(\d+,\d+)/);
-
-        if (!match) return;
-
-        out.push({
-          market: "Carrefour",
-          name,
-          price: parseFloat(match[1].replace(",", ".")),
-          image: el.querySelector("img")?.src || "",
-        });
-      });
-      return out;
-    });
-
-    await browser.close();
-    return dedupe(items);
-  } catch {
     return [];
   }
-}
 
-// ------------------ MAIN ------------------
+  try {
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-extensions",
+        "--disable-infobars",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--mute-audio",
+      ],
+    });
 
-async function searchMultiple(product) {
-  const [sok, carrefour] = await Promise.all([
-    scrapeSok(product),
-    scrapeCarrefour(product),
-  ]);
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
 
-  return { sok, carrefour };
-}
+    await page.setExtraHTTPHeaders({
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Cache-Control": "max-age=0",
+      "Upgrade-Insecure-Requests": "1",
+    });
 
-async function searchProduct(product, market) {
-  if (market === "sok") return scrapeSok(product);
-  if (market === "carrefour") return scrapeCarrefour(product);
-  return [];
+    await page.goto(
+      `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
+      { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS },
+    );
+
+    await delay(4000);
+
+    const html = await page.content();
+    await browser.close();
+
+    const items = parseCarrefourHtml(html);
+    if (items.length > 0) return items;
+
+    const domItems = await extractCarrefourItemsFromPage(page).catch(() => []);
+    return domItems;
+  } catch (err) {
+    console.log(`[Carrefour] Local puppeteer error: ${err.message}`);
+    return [];
+  }
 }
 
 async function compareIngredients(ingredients) {
@@ -211,36 +492,84 @@ async function compareIngredients(ingredients) {
   let carrefourTotal = 0;
 
   for (const ing of ingredients) {
-    const sok = await scrapeSok(ing.name);
-    const carrefour = await scrapeCarrefour(ing.name);
+    const name = String(ing.name || "").trim();
+    const quantity = Number(ing.quantity || 0);
+    if (!name || quantity <= 0) continue;
 
-    const s = sok[0];
-    const c = carrefour[0];
+    const [sokItems, carrefourItems] = await Promise.all([
+      scrapeSok(name).catch(() => []),
+      scrapeCarrefour(name).catch(() => []),
+    ]);
 
-    const sokCost = s ? s.price * ing.quantity : 0;
-    const carrefourCost = c ? c.price * ing.quantity : 0;
+    const sokItem =
+      Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
+    const carrefourItem =
+      Array.isArray(carrefourItems) && carrefourItems.length > 0
+        ? carrefourItems[0]
+        : null;
 
-    sokTotal += sokCost;
-    carrefourTotal += carrefourCost;
+    const sokUnit = sokItem ? Number(sokItem.price) : null;
+    const carrefourUnit = carrefourItem ? Number(carrefourItem.price) : null;
+
+    const sokCost =
+      sokUnit !== null && Number.isFinite(sokUnit) ? sokUnit * quantity : null;
+    const carrefourCost =
+      carrefourUnit !== null && Number.isFinite(carrefourUnit)
+        ? carrefourUnit * quantity
+        : null;
+
+    if (sokCost !== null) sokTotal += sokCost;
+    if (carrefourCost !== null) carrefourTotal += carrefourCost;
 
     rows.push({
-      name: ing.name,
-      sok: sokCost,
-      carrefour: carrefourCost,
+      ingredient: name,
+      quantity,
+      sok: { unitPrice: sokUnit, cost: sokCost },
+      carrefour: { unitPrice: carrefourUnit, cost: carrefourCost },
     });
   }
 
+  const totals = { sok: sokTotal, carrefour: carrefourTotal };
+  const hasSok = rows.some((row) => row.sok.unitPrice !== null);
+  const hasCarrefour = rows.some((row) => row.carrefour.unitPrice !== null);
+
+  let cheapestMarket = "N/A";
+  let cheapestTotal = null;
+
+  const markets = [];
+  if (hasSok) markets.push({ name: "Sok", total: sokTotal });
+  if (hasCarrefour) markets.push({ name: "Carrefour", total: carrefourTotal });
+
+  if (markets.length > 0) {
+    markets.sort((a, b) => a.total - b.total);
+    cheapestMarket = markets[0].name;
+    cheapestTotal = markets[0].total;
+  }
+
+  return { rows, totals, cheapestMarket, cheapestTotal };
+}
+
+async function searchProduct(product, market) {
+  if (market === "sok") return await scrapeSok(product);
+  if (market === "carrefour") return await scrapeCarrefour(product);
+  return [];
+}
+
+async function searchMultiple(product) {
+  const [sok, carrefour] = await Promise.all([
+    scrapeSok(product).catch(() => []),
+    scrapeCarrefour(product).catch(() => []),
+  ]);
+
   return {
-    rows,
-    totals: {
-      sok: sokTotal,
-      carrefour: carrefourTotal,
-    },
+    sok: Array.isArray(sok) ? sok : [],
+    carrefour: Array.isArray(carrefour) ? carrefour : [],
   };
 }
 
 module.exports = {
-  searchMultiple,
-  searchProduct,
   compareIngredients,
+  searchProduct,
+  searchMultiple,
+  parseCarrefourHtml,
 };
