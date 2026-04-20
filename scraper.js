@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer-extra");
+﻿const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 
 puppeteer.use(StealthPlugin());
@@ -35,13 +35,12 @@ function improveSearchQuery(q) {
   return String(q || "")
     .toLowerCase()
     .trim()
-    .replace(/\bmilk\b/g, "süt")
+    .replace(/\bmilk\b/g, "s\u00fct")
     .replace(/\bcheese\b/g, "peynir")
-    .replace(/\byogurt\b/g, "yoğurt")
-    .replace(/\bsut\b/g, "süt")
-    .replace(/\byogurt\b/g, "yoğurt")
-    .replace(/\bkasar\b/g, "kaşar")
-    .replace(/\bcilek\b/g, "çilek");
+    .replace(/\byogurt\b/g, "yo\u011furt")
+    .replace(/\bsut\b/g, "s\u00fct")
+    .replace(/\bkasar\b/g, "ka\u015far")
+    .replace(/\bcilek\b/g, "\u00e7ilek");
 }
 
 function parsePriceValue(text) {
@@ -49,8 +48,8 @@ function parsePriceValue(text) {
   const str = String(text);
 
   const match =
-    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:₺|TL)/i) ||
-    str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:\u20BA|TL)/i) ||
+    str.match(/(?:\u20BA|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
     str.match(/([\d]+[.,]\d{2})/);
 
   if (!match) return null;
@@ -90,11 +89,11 @@ function carrefourQueryVariants(product) {
 
   const variants = new Set([source]);
   const pairs = [
-    ["sut", "süt"],
-    ["yogurt", "yoğurt"],
-    ["cilek", "çilek"],
-    ["kasar", "kaşar"],
-    ["kofte", "köfte"],
+    ["sut", "s\u00fct"],
+    ["yogurt", "yo\u011furt"],
+    ["cilek", "\u00e7ilek"],
+    ["kasar", "ka\u015far"],
+    ["kofte", "k\u00f6fte"],
   ];
 
   for (const [a, b] of pairs) {
@@ -263,9 +262,9 @@ async function extractCarrefourItemsFromPage(page) {
     const parsePrice = (text) => {
       const str = String(text || "");
       const match =
-        str.match(/\u20BA\s*([\d.,]+)/) ||
-        str.match(/([\d.,]+)\s*(TL|\u20BA)/i) ||
-        str.match(/([\d]+[.,]\d{2})/);
+    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:\u20BA|TL)/i) ||
+    str.match(/(?:\u20BA|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+    str.match(/([\d]+[.,]\d{2})/);
       if (!match) return null;
       return Number.parseFloat(
         String(match[1]).replace(/\./g, "").replace(",", "."),
@@ -374,9 +373,9 @@ async function scrapeSok(product) {
   const query = improveSearchQuery(product);
   const variants = [query];
 
-  if (query.includes("sut")) variants.push(query.replace("sut", "süt"));
-  if (query.includes("cilek")) variants.push(query.replace("cilek", "çilek"));
-  if (query.includes("kasar")) variants.push(query.replace("kasar", "kaşar"));
+  if (query.includes("sut")) variants.push(query.replace("sut", "sÃ¼t"));
+  if (query.includes("cilek")) variants.push(query.replace("cilek", "Ã§ilek"));
+  if (query.includes("kasar")) variants.push(query.replace("kasar", "kaÅŸar"));
 
   for (const q of variants) {
     try {
@@ -583,3 +582,4 @@ module.exports = {
   searchMultiple,
   parseCarrefourHtml,
 };
+
