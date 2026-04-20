@@ -16,16 +16,47 @@ const IS_CLOUD = Boolean(
 const CARREFOUR_SCRAPER_SERVICE = String(
   process.env.CARREFOUR_SCRAPER_SERVICE || ""
 ).trim();
+const CARREFOUR_COOKIE = String(process.env.CARREFOUR_COOKIE || "").trim();
+const CARREFOUR_ACCEPT_LANGUAGE = String(
+  process.env.CARREFOUR_ACCEPT_LANGUAGE || "en-US,en;q=0.9",
+).trim();
+const CARREFOUR_REFERER = String(
+  process.env.CARREFOUR_REFERER || "https://www.carrefoursa.com/search/?q=sut",
+).trim();
 
 const CARREFOUR_DEBUG =
   String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+  "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
 function logCarrefourDebug(message, extra) {
   if (!CARREFOUR_DEBUG) return;
   console.log(`[Carrefour][Debug] ${message}`, extra || "");
+}
+
+function carrefourRequestHeaders(referer) {
+  const headers = {
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": CARREFOUR_ACCEPT_LANGUAGE,
+    "Cache-Control": "max-age=0",
+    Priority: "u=0, i",
+    Referer: referer || CARREFOUR_REFERER,
+    "Sec-CH-UA":
+      '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": CHROME_USER_AGENT,
+  };
+
+  if (CARREFOUR_COOKIE) headers.Cookie = CARREFOUR_COOKIE;
+  return headers;
 }
 
 function normalizeText(value) {
@@ -372,13 +403,37 @@ async function fetchCarrefourViaScraperService(query) {
   }
 }
 
+async function fetchCarrefourViaSession(query) {
+  if (!CARREFOUR_COOKIE) {
+    throw new Error("CARREFOUR_COOKIE is missing");
+  }
+
+  const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(targetUrl, {
+      headers: carrefourRequestHeaders(targetUrl),
+      signal: controller.signal,
+    });
+    logCarrefourDebug("session fetch status", response.status);
+    if (!response.ok && response.status !== 304) {
+      throw new Error(`session HTTP ${response.status}`);
+    }
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function scrapeSok(product) {
   const query = improveSearchQuery(product);
   const variants = [query];
 
-  if (query.includes("sut")) variants.push(query.replace("sut", "sÃ¼t"));
-  if (query.includes("cilek")) variants.push(query.replace("cilek", "Ã§ilek"));
-  if (query.includes("kasar")) variants.push(query.replace("kasar", "kaÅŸar"));
+  if (query.includes("sut")) variants.push(query.replace("sut", "s\u00fct"));
+  if (query.includes("cilek")) variants.push(query.replace("cilek", "\u00e7ilek"));
+  if (query.includes("kasar")) variants.push(query.replace("kasar", "ka\u015far"));
 
   for (const q of variants) {
     try {
@@ -415,6 +470,16 @@ async function scrapeCarrefourViaJina(product) {
 
 async function scrapeCarrefour(product) {
   const query = improveSearchQuery(product);
+
+  if (CARREFOUR_COOKIE) {
+    try {
+      const html = await fetchCarrefourViaSession(query);
+      const items = parseCarrefourHtml(html);
+      if (items.length > 0) return items;
+    } catch (err) {
+      console.log(`[Carrefour] Session fetch error: ${err.message}`);
+    }
+  }
 
   try {
     const items = await scrapeCarrefourViaJina(query);
@@ -468,22 +533,11 @@ async function scrapeCarrefour(product) {
     await page.setViewport({ width: 1920, height: 1080 });
     await page.setUserAgent(CHROME_USER_AGENT);
 
-    await page.setExtraHTTPHeaders({
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Cache-Control": "max-age=0",
-      Referer: "https://www.google.com/",
-      "Sec-CH-UA":
-        '"Google Chrome";v="135", "Chromium";v="135", "Not.A/Brand";v="24"',
-      "Sec-CH-UA-Mobile": "?0",
-      "Sec-CH-UA-Platform": '"Windows"',
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "none",
-      "Sec-Fetch-User": "?1",
-      "Upgrade-Insecure-Requests": "1",
-    });
+    await page.setExtraHTTPHeaders(
+      carrefourRequestHeaders(
+        `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
+      ),
+    );
 
     await page.goto(
       `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`,
