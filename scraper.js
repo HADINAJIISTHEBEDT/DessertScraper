@@ -414,6 +414,13 @@ async function scrapeCarrefourViaJina(product) {
 async function scrapeCarrefour(product) {
   const query = improveSearchQuery(product);
 
+  try {
+    const items = await scrapeCarrefourViaJina(query);
+    if (items.length > 0) return items;
+  } catch (err) {
+    console.log(`[Carrefour] Jina preflight error: ${err.message}`);
+  }
+
   if (IS_CLOUD) {
     if (!CARREFOUR_SCRAPER_SERVICE) {
       console.log("[Carrefour] Missing scraper service on cloud");
@@ -438,8 +445,9 @@ async function scrapeCarrefour(product) {
     return [];
   }
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
       headless: "new",
       args: [
         "--no-sandbox",
@@ -473,16 +481,18 @@ async function scrapeCarrefour(product) {
     await delay(4000);
 
     const html = await page.content();
-    await browser.close();
-
-    const items = parseCarrefourHtml(html);
+    let items = parseCarrefourHtml(html);
     if (items.length > 0) return items;
 
-    const domItems = await extractCarrefourItemsFromPage(page).catch(() => []);
-    return domItems;
+    items = await extractCarrefourItemsFromPage(page).catch(() => []);
+    return items;
   } catch (err) {
     console.log(`[Carrefour] Local puppeteer error: ${err.message}`);
     return [];
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
   }
 }
 
