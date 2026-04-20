@@ -13,13 +13,17 @@ if not exist "node_modules" (
     echo.
 )
 
-if not exist "server.key" (
-    echo Generating HTTPS certificate...
-    node generate-cert.js
+if "%PORT%"=="" (
+    set PORT=13000
+)
+
+if exist "carrefour-local.env.bat" (
+    echo Loading local Carrefour session...
+    call carrefour-local.env.bat
     echo.
 )
 
-echo Starting server...
-node server-https.js
+echo Starting server on port %PORT%...
+node server.js
 
 pause

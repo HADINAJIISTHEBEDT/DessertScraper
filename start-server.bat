@@ -1,5 +1,7 @@
 @echo off
 cd /d "%~dp0"
+if "%PORT%"=="" set PORT=13000
+if exist "carrefour-local.env.bat" call carrefour-local.env.bat
 REM Use start /b to run in background, and loop to restart on crash
 :loop
 start /b /min node server.js
