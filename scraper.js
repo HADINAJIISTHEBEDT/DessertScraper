@@ -19,6 +19,9 @@ const CARREFOUR_SCRAPER_SERVICE = String(
 
 const CARREFOUR_DEBUG =
   String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
+const CHROME_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
 function logCarrefourDebug(message, extra) {
   if (!CARREFOUR_DEBUG) return;
@@ -463,12 +466,22 @@ async function scrapeCarrefour(product) {
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(CHROME_USER_AGENT);
 
     await page.setExtraHTTPHeaders({
       Accept:
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
       "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
       "Cache-Control": "max-age=0",
+      Referer: "https://www.google.com/",
+      "Sec-CH-UA":
+        '"Google Chrome";v="135", "Chromium";v="135", "Not.A/Brand";v="24"',
+      "Sec-CH-UA-Mobile": "?0",
+      "Sec-CH-UA-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
       "Upgrade-Insecure-Requests": "1",
     });
 

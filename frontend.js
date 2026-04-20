@@ -408,28 +408,36 @@ function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
     html += `<div class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label}</span></div><div class="pick-market-items">`;
     if (!items||!items.length) html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
     else items.forEach(item => {
+      const packageInfo = extractPackageFromName(item.name);
       const img = item.image ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` : "<span>📦</span>";
-      const estimated = Number.isFinite(Number(item.price)) ? formatTryPrice(Number(item.price) * quantity) : "-";
-      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)}): ${estimated}</div></div><button class="pick-select-btn" data-name="${escapeAttr(item.name)}">${t("select")}</button></div>`;
+      const estimated = estimateItemCost(item.price, quantity, quantityUnit, packageInfo);
+      const packageLabel = packageInfo ? `${packageInfo.size} ${packageInfo.unit}` : "1 piece";
+      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)} from ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${t("select")}</button></div>`;
     });
     html += `</div></div>`;
   });
   html += "</div>"; resultsBox.innerHTML = html;
-  resultsBox.querySelectorAll(".pick-select-btn").forEach(btn => { btn.addEventListener("click", () => applyPickedItem(btn.dataset.name)); });
+  resultsBox.querySelectorAll(".pick-select-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyPickedItem(btn.dataset.name, btn.dataset.packSize, btn.dataset.packUnit));
+  });
 }
 
 function escapeAttr(s) { return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function escapeText(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-window.applyPickedItem = function(name) {
+window.applyPickedItem = function(name, packageSize, packageUnit) {
   if (!_pickTarget) return;
   const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const unitEl = document.getElementById(`ing_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const packEl = document.getElementById(`ing_pack_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const packUnitEl = document.getElementById(`ing_pack_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyInput = document.getElementById("pickQuantityInput");
   const qtyUnit = document.getElementById("pickQuantityUnit");
   if (el) el.value = name;
   if (qtyEl && qtyInput && qtyInput.value) qtyEl.value = qtyInput.value;
   if (unitEl && qtyUnit && qtyUnit.value) unitEl.value = qtyUnit.value;
+  if (packEl && packageSize) packEl.value = packageSize;
+  if (packUnitEl && packageUnit) packUnitEl.value = packageUnit;
   closePickModal();
 };
 
@@ -500,6 +508,48 @@ window.openMarketLink = function(market, di, ii) {
 function renderUnitOptions(sel) { return ["g","kg","ml","l","piece"].map(u => `<option value="${u}" ${u===sel?"selected":""}>${u}</option>`).join(""); }
 function toBaseUnit(v, u) { const n = Number(v); if (!Number.isFinite(n)||n<=0) return null; const s = String(u||"").toLowerCase(); if (s==="g") return {type:"mass",value:n}; if (s==="kg") return {type:"mass",value:n*1000}; if (s==="ml") return {type:"volume",value:n}; if (s==="l") return {type:"volume",value:n*1000}; if (s==="piece") return {type:"count",value:n}; return null; }
 function calculateEffectiveQuantity(nq, nu, pq, pu) { const n = toBaseUnit(nq,nu), p = toBaseUnit(pq,pu); if (!n||!p) return Number(nq)||1; if (n.type!==p.type) return Number(nq)||1; return Math.max(n.value/p.value,0.01); }
+function extractPackageFromName(name) {
+  const text = String(name || "").toLowerCase();
+  const multiMatch = [...text.matchAll(/(\d+(?:[.,]\d+)?)\s*[x*]\s*(\d+(?:[.,]\d+)?)\s*(kg|gr|g|ml|cl|l|lt)\b/g)];
+  if (multiMatch.length) {
+    const match = multiMatch[multiMatch.length - 1];
+    const count = Number(String(match[1]).replace(",", "."));
+    const amount = Number(String(match[2]).replace(",", "."));
+    const unit = normalizePackageUnit(match[3]);
+    if (Number.isFinite(count) && Number.isFinite(amount) && unit) {
+      return { size: count * amount * packageUnitMultiplier(match[3]), unit };
+    }
+  }
+  const singleMatch = [...text.matchAll(/(\d+(?:[.,]\d+)?)\s*(kg|gr|g|ml|cl|l|lt)\b/g)];
+  if (!singleMatch.length) return null;
+  const match = singleMatch[singleMatch.length - 1];
+  const amount = Number(String(match[1]).replace(",", "."));
+  const unit = normalizePackageUnit(match[2]);
+  if (!Number.isFinite(amount) || !unit) return null;
+  return { size: amount * packageUnitMultiplier(match[2]), unit };
+}
+function normalizePackageUnit(unit) {
+  const value = String(unit || "").toLowerCase();
+  if (value === "kg") return "kg";
+  if (value === "gr" || value === "g") return "g";
+  if (value === "ml" || value === "cl") return "ml";
+  if (value === "l" || value === "lt") return "l";
+  return "";
+}
+function packageUnitMultiplier(unit) {
+  const value = String(unit || "").toLowerCase();
+  if (value === "cl") return 10;
+  if (value === "lt") return 1;
+  return 1;
+}
+function estimateItemCost(price, quantity, quantityUnit, packageInfo) {
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0) return 0;
+  const wanted = toBaseUnit(quantity, quantityUnit);
+  const pack = packageInfo ? toBaseUnit(packageInfo.size, packageInfo.unit) : null;
+  if (!wanted || !pack || wanted.type !== pack.type) return numericPrice * Math.max(Number(quantity) || 1, 0.01);
+  return numericPrice * Math.max(wanted.value / pack.value, 0.01);
+}
 function formatTryPrice(v) { if (!Number.isFinite(Number(v))) return "-"; return `${Number(v).toFixed(2)} TL`; }
 
 // ─── Chrome Notifications ───────────────────────────────────────────────────
