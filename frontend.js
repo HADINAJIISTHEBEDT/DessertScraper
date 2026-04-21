@@ -8,6 +8,22 @@ const AUTO_EMAIL = "5000";
 const AUTO_PASSWORD = "5000";
 const LOCAL_KEY = "desserts_offline_data_v2";
 let pushToken = null;
+let pushStatus = {
+  checked: false,
+  supported: false,
+  publicKey: null,
+  firebaseConfig: null,
+  reason: null,
+};
+
+const FIREBASE_CONFIG_FALLBACK = {
+  apiKey: "AIzaSyDQSPs6oly79c18Nyi-SP_WJlp52l9Ja7g",
+  authDomain: "hookahtalya-b865f.firebaseapp.com",
+  projectId: "hookahtalya-b865f",
+  storageBucket: "hookahtalya-b865f.firebasestorage.app",
+  messagingSenderId: "635656922703",
+  appId: "1:635656922703:web:a27e2c407484ed641b2c3a",
+};
 
 let currentLang = localStorage.getItem("app_lang") || "en";
 
@@ -171,10 +187,26 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function getPushPublicKey() {
+  if (pushStatus.checked) return pushStatus;
+
   const res = await fetch(`${SCRAPER_API_BASE}/push-public-key`);
-  if (!res.ok) throw new Error("Failed to load push public key");
   const data = await res.json();
-  return data.publicKey;
+  pushStatus = {
+    checked: true,
+    supported: Boolean(res.ok && data.publicKey),
+    publicKey: data.publicKey || null,
+    firebaseConfig: data.firebaseConfig || FIREBASE_CONFIG_FALLBACK,
+    reason: data.error || data.reason || null,
+  };
+  return pushStatus;
+}
+
+async function ensurePushAvailability() {
+  const status = await getPushPublicKey();
+  if (!status.supported || !status.publicKey) {
+    throw new Error(status.reason || "Push notifications are not configured on this server");
+  }
+  return status;
 }
 
 async function ensurePushSubscription() {
@@ -182,25 +214,19 @@ async function ensurePushSubscription() {
     throw new Error("Push notifications are not supported on this device");
   }
 
+  const push = await ensurePushAvailability();
+  if (pushToken) return pushToken;
+
   const [{ initializeApp }, { getMessaging, getToken }] = await Promise.all([
     import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
     import("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging.js"),
   ]);
 
-  const firebaseApp = initializeApp({
-    apiKey: "AIzaSyDQSPs6oly79c18Nyi-SP_WJlp52l9Ja7g",
-    authDomain: "hookahtalya-b865f.firebaseapp.com",
-    projectId: "hookahtalya-b865f",
-    storageBucket: "hookahtalya-b865f.firebasestorage.app",
-    messagingSenderId: "635656922703",
-    appId: "1:635656922703:web:a27e2c407484ed641b2c3a",
-  });
-
-  const publicKey = await getPushPublicKey();
+  const firebaseApp = initializeApp(push.firebaseConfig || FIREBASE_CONFIG_FALLBACK);
   const registration = await navigator.serviceWorker.register("/sw.js");
   const messaging = getMessaging(firebaseApp);
   pushToken = await getToken(messaging, {
-    vapidKey: publicKey,
+    vapidKey: push.publicKey,
     serviceWorkerRegistration: registration,
   });
 
@@ -213,7 +239,13 @@ async function ensurePushSubscription() {
 
 async function syncTimerPush(index) {
   if (!notificationsEnabled || Notification.permission !== "granted" || !SCRAPER_API_BASE) return;
-  if (!pushToken) await ensurePushSubscription();
+  if (!pushToken) {
+    try {
+      await ensurePushSubscription();
+    } catch (_) {
+      return;
+    }
+  }
 
   const dessert = desserts[index];
   if (!dessert) return;
@@ -297,7 +329,13 @@ function showApp() {
   document.getElementById("app").style.display = "block";
   render(); renderSettings(); renderDessertSelect(); switchTab("timer");
   initNotifications();
-  if (notificationsEnabled && Notification.permission === "granted") ensurePushSubscription().catch(()=>{});
+  if (notificationsEnabled && Notification.permission === "granted") {
+    ensurePushSubscription().catch(() => {
+      notificationsEnabled = false;
+      localStorage.setItem("notif_enabled", "false");
+      initNotifications();
+    });
+  }
 }
 
 function triggerDessertFinishedAlert(dessert) {
@@ -604,24 +642,37 @@ window.toggleNotifications = async function() {
   }
   var permission = await Notification.requestPermission();
   if (permission === "granted") {
-    notificationsEnabled = true;
-    localStorage.setItem("notif_enabled", "true");
-    btn.classList.add("active");
-    btn.title = "Disable Notifications";
-    await ensurePushSubscription();
-    await fetch(`${SCRAPER_API_BASE}/push-test`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: pushToken, url: window.location.href }),
-    });
-    desserts.forEach((_, i) => syncTimerPush(i).catch(()=>{}));
-    showChromeNotification("Notifications Enabled!", "You will receive alerts when dessert timers finish.", "notifications-enabled");
+    try {
+      await ensurePushSubscription();
+      notificationsEnabled = true;
+      localStorage.setItem("notif_enabled", "true");
+      btn.classList.add("active");
+      btn.title = "Disable Notifications";
+      await fetch(`${SCRAPER_API_BASE}/push-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: pushToken, url: window.location.href }),
+      });
+      desserts.forEach((_, i) => syncTimerPush(i).catch(()=>{}));
+      showChromeNotification("Notifications Enabled!", "You will receive alerts when dessert timers finish.", "notifications-enabled");
+    } catch (err) {
+      notificationsEnabled = false;
+      localStorage.setItem("notif_enabled", "false");
+      btn.classList.remove("active");
+      btn.title = "Enable Notifications";
+      alert(err.message || "Push notifications are not available right now.");
+    }
   }
 };
 
 function initNotifications() {
   var btn = document.getElementById("notifBtn");
   if (!btn) return;
+  if (!("Notification" in window)) {
+    btn.classList.remove("active");
+    btn.title = "Browser does not support notifications";
+    return;
+  }
   if (notificationsEnabled && Notification.permission === "granted") {
     btn.classList.add("active");
     btn.title = "Disable Notifications";

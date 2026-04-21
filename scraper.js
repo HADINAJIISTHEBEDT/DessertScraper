@@ -4,6 +4,8 @@ const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());
 
 const NAV_TIMEOUT_MS = 60000;
+const SEARCH_TIMEOUT_MS = Number(process.env.SEARCH_TIMEOUT_MS || 25000);
+const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const IS_CLOUD = Boolean(
@@ -26,6 +28,7 @@ const CARREFOUR_REFERER = String(
 
 const CARREFOUR_DEBUG =
   String(process.env.CARREFOUR_DEBUG || "").trim() === "1";
+const SCRAPER_API_KEY = String(process.env.SCRAPER_API_KEY || "").trim();
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
@@ -33,6 +36,26 @@ const CHROME_USER_AGENT =
 function logCarrefourDebug(message, extra) {
   if (!CARREFOUR_DEBUG) return;
   console.log(`[Carrefour][Debug] ${message}`, extra || "");
+}
+
+function logScrape(stage, message) {
+  console.log(`[Scraper][${stage}] ${message}`);
+}
+
+async function withTimeout(label, promise, timeoutMs = SEARCH_TIMEOUT_MS) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function carrefourRequestHeaders(referer) {
@@ -140,7 +163,7 @@ function carrefourQueryVariants(product) {
 async function fetchViaJinaReader(url) {
   const jinaUrl = `https://r.jina.ai/${url}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const timeout = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS);
 
   try {
     const response = await fetch(jinaUrl, {
@@ -377,12 +400,20 @@ async function extractCarrefourItemsFromPage(page) {
 }
 
 async function fetchCarrefourViaScraperService(query) {
-  if (!CARREFOUR_SCRAPER_SERVICE) {
+  const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+  let serviceUrl = CARREFOUR_SCRAPER_SERVICE;
+
+  if (!serviceUrl && SCRAPER_API_KEY) {
+    serviceUrl =
+      `https://api.scraperapi.com?api_key=${encodeURIComponent(SCRAPER_API_KEY)}` +
+      `&country_code=tr&render=true&url={URL}`;
+  }
+
+  if (!serviceUrl) {
     throw new Error("CARREFOUR_SCRAPER_SERVICE is missing");
   }
 
-  const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
-  const serviceUrl = CARREFOUR_SCRAPER_SERVICE.replace(
+  const resolvedUrl = serviceUrl.replace(
     "{URL}",
     encodeURIComponent(targetUrl),
   );
@@ -391,7 +422,7 @@ async function fetchCarrefourViaScraperService(query) {
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(serviceUrl, {
+    const response = await fetch(resolvedUrl, {
       headers: { Accept: "text/html" },
       signal: controller.signal,
     });
@@ -437,17 +468,22 @@ async function scrapeSok(product) {
 
   for (const q of variants) {
     try {
+      logScrape("Sok", `Trying Jina for query "${q}"`);
       const url = `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(q)}`;
-      const text = await fetchViaJinaReader(url);
+      const text = await withTimeout("Sok Jina fetch", fetchViaJinaReader(url));
       if (/attention required|cloudflare|blocked/i.test(text)) continue;
 
       const items = parseSokFromJinaText(text);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        logScrape("Sok", `Found ${items.length} items for "${q}"`);
+        return items;
+      }
     } catch (err) {
-      console.log(`[Sok] Jina error: ${err.message}`);
+      logScrape("Sok", `Jina error for "${q}": ${err.message}`);
     }
   }
 
+  logScrape("Sok", `No results for "${product}"`);
   return [];
 }
 
@@ -456,12 +492,19 @@ async function scrapeCarrefourViaJina(product) {
 
   for (const query of queries) {
     try {
+      logScrape("Carrefour", `Trying Jina for query "${query}"`);
       const url = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
-      const text = await fetchViaJinaReader(url);
+      const text = await withTimeout(
+        "Carrefour Jina fetch",
+        fetchViaJinaReader(url),
+      );
       const items = parseCarrefourHtml(text);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        logScrape("Carrefour", `Jina returned ${items.length} items`);
+        return items;
+      }
     } catch (err) {
-      console.log(`[Carrefour] Jina error: ${err.message}`);
+      logScrape("Carrefour", `Jina error for "${query}": ${err.message}`);
     }
   }
 
@@ -473,11 +516,15 @@ async function scrapeCarrefour(product) {
 
   if (CARREFOUR_COOKIE) {
     try {
+      logScrape("Carrefour", "Trying authenticated session fetch");
       const html = await fetchCarrefourViaSession(query);
       const items = parseCarrefourHtml(html);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        logScrape("Carrefour", `Session fetch returned ${items.length} items`);
+        return items;
+      }
     } catch (err) {
-      console.log(`[Carrefour] Session fetch error: ${err.message}`);
+      logScrape("Carrefour", `Session fetch error: ${err.message}`);
     }
   }
 
@@ -489,17 +536,16 @@ async function scrapeCarrefour(product) {
   }
 
   if (IS_CLOUD) {
-    if (!CARREFOUR_SCRAPER_SERVICE) {
-      console.log("[Carrefour] Missing scraper service on cloud");
-      return [];
-    }
-
     try {
+      logScrape("Carrefour", "Trying cloud scraper service");
       const html = await fetchCarrefourViaScraperService(query);
       const items = parseCarrefourHtml(html);
-      if (items.length > 0) return items;
+      if (items.length > 0) {
+        logScrape("Carrefour", `Cloud scraper returned ${items.length} items`);
+        return items;
+      }
     } catch (err) {
-      console.log(`[Carrefour] Scraper service error: ${err.message}`);
+      logScrape("Carrefour", `Scraper service error: ${err.message}`);
     }
 
     try {
@@ -551,9 +597,12 @@ async function scrapeCarrefour(product) {
     if (items.length > 0) return items;
 
     items = await extractCarrefourItemsFromPage(page).catch(() => []);
+    if (items.length > 0) {
+      logScrape("Carrefour", `Local puppeteer extracted ${items.length} items`);
+    }
     return items;
   } catch (err) {
-    console.log(`[Carrefour] Local puppeteer error: ${err.message}`);
+    logScrape("Carrefour", `Local puppeteer error: ${err.message}`);
     return [];
   } finally {
     if (browser) {
@@ -626,15 +675,31 @@ async function compareIngredients(ingredients) {
 }
 
 async function searchProduct(product, market) {
-  if (market === "sok") return await scrapeSok(product);
-  if (market === "carrefour") return await scrapeCarrefour(product);
+  if (market === "sok") {
+    return await withTimeout(`searchProduct sok:${product}`, scrapeSok(product));
+  }
+  if (market === "carrefour") {
+    return await withTimeout(
+      `searchProduct carrefour:${product}`,
+      scrapeCarrefour(product),
+    );
+  }
   return [];
 }
 
 async function searchMultiple(product) {
   const [sok, carrefour] = await Promise.all([
-    scrapeSok(product).catch(() => []),
-    scrapeCarrefour(product).catch(() => []),
+    withTimeout(`searchMultiple sok:${product}`, scrapeSok(product)).catch((err) => {
+      logScrape("Sok", err.message);
+      return [];
+    }),
+    withTimeout(
+      `searchMultiple carrefour:${product}`,
+      scrapeCarrefour(product),
+    ).catch((err) => {
+      logScrape("Carrefour", err.message);
+      return [];
+    }),
   ]);
 
   return {

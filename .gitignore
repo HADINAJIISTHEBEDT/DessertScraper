@@ -10,3 +10,4 @@ serviceAccountKey.json
 *.key*
 *.png
 carrefour-local.env.bat
+nul

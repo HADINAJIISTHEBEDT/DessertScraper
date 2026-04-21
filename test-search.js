@@ -1,10 +1,13 @@
-const {searchMultiple} = require('./scraper-test');
+const { searchMultiple } = require("./scraper");
 
-searchMultiple('sut').then(r => {
-  console.log('\n=== SOK ===');
-  console.log(r.sok);
-  console.log('\n=== TAHTAKALE ===');
-  console.log(r.tahtakale);
-  console.log('\n=== CARREFOUR ===');
-  console.log(r.carrefour);
-}).catch(console.error);
+searchMultiple("sut")
+  .then((result) => {
+    console.log("\n=== SOK ===");
+    console.log(result.sok);
+    console.log("\n=== CARREFOUR ===");
+    console.log(result.carrefour);
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

@@ -20,3 +20,13 @@ services:
         value: 0
       - key: CARREFOUR_MIRROR_FALLBACK
         value: 1
+      - key: SEARCH_TIMEOUT_MS
+        value: 25000
+      - key: JINA_TIMEOUT_MS
+        value: 20000
+      - key: FIREBASE_VAPID_PUBLIC_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_WEB_CONFIG_JSON
+        sync: false

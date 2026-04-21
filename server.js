@@ -1,23 +1,24 @@
+"use strict";
+
 const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const { exec, spawn } = require("child_process");
-const {
-  compareIngredients,
-  searchProduct,
-  searchMultiple,
-} = require("./scraper");
+const { createNodeRequestListener } = require("./api-handler");
 
 let NGROK_URL = null;
 
-const PORTS_TO_TRY = [5050, 5051, 5052, 5053, 8080, 3000, 5000, 7000, 8000, 13000, 13001, 13002, 15050, 15051, 18080];
+const PORTS_TO_TRY = [
+  5050, 5051, 5052, 5053, 8080, 3000, 5000, 7000, 8000, 13000, 13001,
+  13002, 15050, 15051, 18080,
+];
 const IS_PRODUCTION =
   process.env.NODE_ENV === "production" || process.env.RENDER || process.env.PORT;
 
 const SSL_KEY = path.join(__dirname, "server.key");
 const SSL_CERT = path.join(__dirname, "server.crt");
-const HAS_SSL = false; // Temporarily disabled
+const HAS_SSL = false;
 
 let sslOptions = null;
 if (HAS_SSL) {
@@ -42,87 +43,39 @@ async function killPort(port) {
           resolve(false);
           return;
         }
-        const lines = stdout.split("\n").filter(l => l.includes(`:${port}`));
-        if (lines.length === 0) {
-          resolve(false);
-          return;
-        }
+
+        const lines = stdout.split("\n").filter((line) => line.includes(`:${port}`));
         const pids = new Set();
+
         for (const line of lines) {
           const parts = line.trim().split(/\s+/);
           const pid = parts[parts.length - 1];
-          if (pid && /^\d+$/.test(pid)) {
-            pids.add(pid);
-          }
+          if (pid && /^\d+$/.test(pid)) pids.add(pid);
         }
-        if (pids.size === 0) {
+
+        if (!pids.size) {
           resolve(false);
           return;
         }
-        let killed = 0;
-        let total = pids.size;
+
+        let completed = 0;
         for (const pid of pids) {
-          exec(`taskkill /PID ${pid} /F`, (e) => {
-            killed++;
-            if (killed >= total) {
+          exec(`taskkill /PID ${pid} /F`, () => {
+            completed += 1;
+            if (completed >= pids.size) {
               setTimeout(() => resolve(true), 500);
             }
           });
         }
       });
-    } else {
-      exec(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, () => {
-        setTimeout(() => resolve(true), 200);
-      });
-    }
-  });
-}
-
-function corsHeaders(req) {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin",
-  };
-}
-
-function sendJson(res, status, payload, req) {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    ...corsHeaders(req),
-  });
-  res.end(JSON.stringify(payload));
-}
-
-function serveFile(res, filePath, contentType) {
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end("Not found");
       return;
     }
-    res.writeHead(200, {
-      "Content-Type": contentType,
-      "Access-Control-Allow-Origin": "*",
+
+    exec(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, () => {
+      setTimeout(() => resolve(true), 200);
     });
-    res.end(data);
   });
 }
-
-const MIME = {
-  ".html": "text/html",
-  ".css": "text/css",
-  ".js": "application/javascript",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".webmanifest": "application/manifest+json",
-};
 
 function openBrowser(url) {
   if (IS_PRODUCTION) return;
@@ -139,8 +92,9 @@ function openBrowser(url) {
   }
 
   exec(command, (err) => {
-    if (err)
+    if (err) {
       console.log("Could not auto-open browser. Please open manually:", url);
+    }
   });
 }
 
@@ -155,8 +109,8 @@ function startNgrok(port) {
 
     ngrok.stdout.on("data", (data) => {
       const output = data.toString();
-
       const urlMatch = output.match(/https:\/\/[a-z0-9-]+\.ngrok-free\.app/);
+
       if (urlMatch && !NGROK_URL) {
         NGROK_URL = urlMatch[0];
         console.log("\n========================================");
@@ -164,10 +118,7 @@ function startNgrok(port) {
         console.log("========================================");
         console.log(`   Public URL: ${NGROK_URL}`);
         console.log(`   Local:      ${HAS_SSL ? "https" : "http"}://localhost:${port}`);
-        console.log("========================================");
-        console.log("\nUse this URL on your phone (works from anywhere):");
-        console.log(`${NGROK_URL}`);
-        console.log("\n========================================\n");
+        console.log("========================================\n");
 
         setTimeout(() => {
           openBrowser(NGROK_URL);
@@ -184,6 +135,7 @@ function startNgrok(port) {
       console.log("[NGROK] To install: npm install -g ngrok");
       console.log("[NGROK] Then sign up at https://ngrok.com");
       console.log("[NGROK] Run: ngrok config add-authtoken YOUR_TOKEN\n");
+      console.log(err.message);
     });
 
     ngrok.on("close", (code) => {
@@ -196,112 +148,13 @@ function startNgrok(port) {
   }
 }
 
+function createServer() {
+  const listener = createNodeRequestListener();
+  return HAS_SSL ? https.createServer(sslOptions, listener) : http.createServer(listener);
+}
+
 function startServer(port) {
-  const createServer = HAS_SSL ? https.createServer.bind(https, sslOptions) : http.createServer;
-  const server = createServer((req, res) => {
-    if (req.method === "OPTIONS") {
-      sendJson(res, 200, { ok: true }, req);
-      return;
-    }
-    if (req.method === "GET" && req.url === "/health") {
-      sendJson(res, 200, { status: "ok", port }, req);
-      return;
-    }
-
-    if (req.method === "GET") {
-      let urlPath = req.url.split("?")[0];
-      if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
-      const ext = path.extname(urlPath);
-      const contentType = MIME[ext];
-      if (contentType) {
-        serveFile(res, path.join(__dirname, urlPath), contentType);
-        return;
-      }
-      res.writeHead(404);
-      res.end("Not found");
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/compare") {
-      let body = "";
-      req.on("data", (c) => {
-        body += c.toString();
-      });
-      req.on("end", async () => {
-        try {
-          const parsed = JSON.parse(body || "{}");
-          const ingredients = Array.isArray(parsed.ingredients)
-            ? parsed.ingredients
-            : [];
-          if (!ingredients.length) {
-            sendJson(res, 400, { error: "ingredients array is required" }, req);
-            return;
-          }
-          const result = await compareIngredients(ingredients);
-          sendJson(res, 200, result, req);
-        } catch (err) {
-          sendJson(res, 500, { error: err.message || "internal error" }, req);
-        }
-      });
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/search") {
-      let body = "";
-      req.on("data", (c) => {
-        body += c.toString();
-      });
-      req.on("end", async () => {
-        try {
-          const parsed = JSON.parse(body || "{}");
-          const product = String(parsed.product || "").trim();
-          const market = String(parsed.market || "").toLowerCase();
-          if (!product) {
-            sendJson(res, 400, { error: "product name is required" }, req);
-            return;
-          }
-          if (!["sok", "carrefour"].includes(market)) {
-            sendJson(
-              res,
-              400,
-              { error: "market must be sok or carrefour" },
-              req,
-            );
-            return;
-          }
-          const result = await searchProduct(product, market);
-          sendJson(res, 200, result || { error: "No product found" }, req);
-        } catch (err) {
-          sendJson(res, 500, { error: err.message || "internal error" }, req);
-        }
-      });
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/search-all") {
-      let body = "";
-      req.on("data", (c) => {
-        body += c.toString();
-      });
-      req.on("end", async () => {
-        try {
-          const parsed = JSON.parse(body || "{}");
-          const product = String(parsed.product || "").trim();
-          if (!product) {
-            sendJson(res, 400, { error: "product name is required" }, req);
-            return;
-          }
-          const result = await searchMultiple(product);
-          sendJson(res, 200, result, req);
-        } catch (err) {
-          sendJson(res, 500, { error: err.message || "internal error" }, req);
-        }
-      });
-      return;
-    }
-
-    sendJson(res, 404, { error: "not found" }, req);
-  });
+  const server = createServer();
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
@@ -312,28 +165,16 @@ function startServer(port) {
   server.listen(port, "0.0.0.0", () => {
     const localUrl = `${HAS_SSL ? "https" : "http"}://localhost:${port}`;
 
-    console.log(`\n========================================`);
-    console.log(`   Dessert Cafe Manager is running!`);
-    console.log(`========================================`);
+    console.log("\n========================================");
+    console.log("   Dessert Cafe Manager is running!");
+    console.log("========================================");
     console.log(`   Local:   ${localUrl}`);
-    console.log(`========================================\n`);
+    console.log("========================================\n");
 
     if (!IS_PRODUCTION) {
       setTimeout(() => {
         openBrowser(localUrl);
       }, 1000);
-
-      // Ngrok disabled - uncomment if needed
-      // try {
-      //   startNgrok(port);
-      // } catch (err) {
-      //   console.log(
-      //     "\n[NGROK] Not installed. Install with: npm install -g ngrok",
-      //   );
-      //   console.log(
-      //     "[NGROK] Then sign up at https://ngrok.com and run: ngrok config add-authtoken YOUR_TOKEN\n",
-      //   );
-      // }
     }
   });
 }
@@ -354,24 +195,18 @@ if (process.env.PORT) {
     }
 
     const port = ports[index];
-    
     await killPort(port);
-    
-    const testServer = http.createServer();
 
-    testServer.on("error", (err) => {
+    const probe = http.createServer();
+    probe.on("error", (err) => {
       if (err.code === "EADDRINUSE") {
         console.log(`Port ${port} is in use, trying next...`);
-        tryPorts(ports, index + 1);
-      } else {
-        tryPorts(ports, index + 1);
       }
+      tryPorts(ports, index + 1);
     });
 
-    testServer.listen(port, () => {
-      testServer.close(() => {
-        startServer(port);
-      });
+    probe.listen(port, () => {
+      probe.close(() => startServer(port));
     });
   }
 
