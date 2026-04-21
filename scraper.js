@@ -16,7 +16,7 @@ const IS_CLOUD = Boolean(
 );
 
 const CARREFOUR_SCRAPER_SERVICE = String(
-  process.env.CARREFOUR_SCRAPER_SERVICE || ""
+  process.env.CARREFOUR_SCRAPER_SERVICE || "",
 ).trim();
 const CARREFOUR_COOKIE = String(process.env.CARREFOUR_COOKIE || "").trim();
 const CARREFOUR_ACCEPT_LANGUAGE = String(
@@ -217,7 +217,11 @@ function parseCarrefourHtml(html) {
   const normalizedHtml = String(html || "");
   if (!normalizedHtml) return [];
 
-  if (/attention required|cloudflare|captcha|security check|blocked/i.test(normalizedHtml)) {
+  if (
+    /attention required|cloudflare|captcha|security check|blocked/i.test(
+      normalizedHtml,
+    )
+  ) {
     return [];
   }
 
@@ -247,7 +251,9 @@ function parseCarrefourHtml(html) {
     );
 
     const priceCandidate =
-      card.match(/js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
+      card.match(
+        /js-variant-discounted-price[^>]*>([\s\S]*?)<\/[^>]+>/i,
+      )?.[1] ||
       card.match(/price-cont[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
       card.match(/class="[^"]*price[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ||
       card;
@@ -258,7 +264,9 @@ function parseCarrefourHtml(html) {
         .replace(/&nbsp;/gi, " "),
     );
 
-    const imageMatch = card.match(/<img[^>]+(?:src|data-src|data-lazy)="([^"]+)"/i);
+    const imageMatch = card.match(
+      /<img[^>]+(?:src|data-src|data-lazy)="([^"]+)"/i,
+    );
     const image = normalizeText(imageMatch?.[1] || "");
 
     if (!name || !price) continue;
@@ -279,7 +287,10 @@ function parseCarrefourHtml(html) {
       .replace(/<[^>]+>/g, "\n"),
   );
 
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const textItems = [];
   const textSeen = new Set();
 
@@ -292,7 +303,12 @@ function parseCarrefourHtml(html) {
       const candidate = lines[j];
       if (!candidate || candidate.length < 2) continue;
       if (parsePriceValue(candidate)) continue;
-      if (/sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie/i.test(candidate)) continue;
+      if (
+        /sepete ekle|kabul et|filtrele|ana sayfa|kampanya|cookie/i.test(
+          candidate,
+        )
+      )
+        continue;
       name = candidate;
       break;
     }
@@ -319,9 +335,9 @@ async function extractCarrefourItemsFromPage(page) {
     const parsePrice = (text) => {
       const str = String(text || "");
       const match =
-    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:\u20BA|TL)/i) ||
-    str.match(/(?:\u20BA|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
-    str.match(/([\d]+[.,]\d{2})/);
+        str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:\u20BA|TL)/i) ||
+        str.match(/(?:\u20BA|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+        str.match(/([\d]+[.,]\d{2})/);
       if (!match) return null;
       return Number.parseFloat(
         String(match[1]).replace(/\./g, "").replace(",", "."),
@@ -331,7 +347,7 @@ async function extractCarrefourItemsFromPage(page) {
     const selectors = [
       ".product-listing-item",
       ".product-card",
-      '.item.product-card',
+      ".item.product-card",
       '[class*="product-listing-item"]',
       '[class*="product-card"]',
       '[class*="productCard"]',
@@ -376,7 +392,8 @@ async function extractCarrefourItemsFromPage(page) {
         rawText;
 
       const price = parsePrice(priceText);
-      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000) return;
+      if (!name || !Number.isFinite(price) || price <= 0 || price > 5000)
+        return;
 
       const img = card.querySelector("img");
       const image =
@@ -403,19 +420,26 @@ async function fetchCarrefourViaScraperService(query) {
   const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
   let serviceUrl = CARREFOUR_SCRAPER_SERVICE;
 
+  // Try ScraperAPI if no custom service URL is configured
   if (!serviceUrl && SCRAPER_API_KEY) {
+    // ScraperAPI format: https://api.scraperapi.com?api_key=XXX&url=YYY&render=true
     serviceUrl =
       `https://api.scraperapi.com?api_key=${encodeURIComponent(SCRAPER_API_KEY)}` +
-      `&country_code=tr&render=true&url={URL}`;
+      `&country_code=tr&render=true&url=${encodeURIComponent(targetUrl)}`;
   }
 
   if (!serviceUrl) {
     throw new Error("CARREFOUR_SCRAPER_SERVICE is missing");
   }
 
-  const resolvedUrl = serviceUrl.replace(
-    "{URL}",
-    encodeURIComponent(targetUrl),
+  // If using ScraperAPI format, the URL is already fully constructed
+  const resolvedUrl = serviceUrl.includes("scraperapi.com")
+    ? serviceUrl
+    : serviceUrl.replace("{URL}", encodeURIComponent(targetUrl));
+
+  logCarrefourDebug(
+    "Using scraper service URL",
+    resolvedUrl.includes("scraperapi.com") ? "ScraperAPI" : "Custom",
   );
 
   const controller = new AbortController();
@@ -427,7 +451,8 @@ async function fetchCarrefourViaScraperService(query) {
       signal: controller.signal,
     });
 
-    if (!response.ok) throw new Error(`scraper service HTTP ${response.status}`);
+    if (!response.ok)
+      throw new Error(`scraper service HTTP ${response.status}`);
     return await response.text();
   } finally {
     clearTimeout(timeout);
@@ -463,8 +488,10 @@ async function scrapeSok(product) {
   const variants = [query];
 
   if (query.includes("sut")) variants.push(query.replace("sut", "s\u00fct"));
-  if (query.includes("cilek")) variants.push(query.replace("cilek", "\u00e7ilek"));
-  if (query.includes("kasar")) variants.push(query.replace("kasar", "ka\u015far"));
+  if (query.includes("cilek"))
+    variants.push(query.replace("cilek", "\u00e7ilek"));
+  if (query.includes("kasar"))
+    variants.push(query.replace("kasar", "ka\u015far"));
 
   for (const q of variants) {
     try {
@@ -514,6 +541,49 @@ async function scrapeCarrefourViaJina(product) {
 async function scrapeCarrefour(product) {
   const query = improveSearchQuery(product);
 
+  // CLOUD/RENDER: Use scraper service first (bypasses IP blocking)
+  if (IS_CLOUD) {
+    // Strategy 1: Try ScraperAPI or custom scraper service
+    try {
+      logScrape("Carrefour", "Trying cloud scraper service (primary)");
+      const html = await fetchCarrefourViaScraperService(query);
+      const items = parseCarrefourHtml(html);
+      if (items.length > 0) {
+        logScrape("Carrefour", `Cloud scraper returned ${items.length} items`);
+        return items;
+      }
+    } catch (err) {
+      logScrape("Carrefour", `Cloud scraper service error: ${err.message}`);
+    }
+
+    // Strategy 2: Try authenticated session with cookie
+    if (CARREFOUR_COOKIE) {
+      try {
+        logScrape("Carrefour", "Trying authenticated session");
+        const html = await fetchCarrefourViaSession(query);
+        const items = parseCarrefourHtml(html);
+        if (items.length > 0) {
+          logScrape("Carrefour", `Session returned ${items.length} items`);
+          return items;
+        }
+      } catch (err) {
+        logScrape("Carrefour", `Session error: ${err.message}`);
+      }
+    }
+
+    // Strategy 3: Try Jina Reader as fallback
+    try {
+      const items = await scrapeCarrefourViaJina(query);
+      if (items.length > 0) return items;
+    } catch (err) {
+      logScrape("Carrefour", `Jina fallback error: ${err.message}`);
+    }
+
+    logScrape("Carrefour", "All cloud strategies failed");
+    return [];
+  }
+
+  // LOCAL: Try cookie-based session first, then puppeteer
   if (CARREFOUR_COOKIE) {
     try {
       logScrape("Carrefour", "Trying authenticated session fetch");
@@ -528,6 +598,7 @@ async function scrapeCarrefour(product) {
     }
   }
 
+  // Try Jina Reader locally
   try {
     const items = await scrapeCarrefourViaJina(query);
     if (items.length > 0) return items;
@@ -535,29 +606,7 @@ async function scrapeCarrefour(product) {
     console.log(`[Carrefour] Jina preflight error: ${err.message}`);
   }
 
-  if (IS_CLOUD) {
-    try {
-      logScrape("Carrefour", "Trying cloud scraper service");
-      const html = await fetchCarrefourViaScraperService(query);
-      const items = parseCarrefourHtml(html);
-      if (items.length > 0) {
-        logScrape("Carrefour", `Cloud scraper returned ${items.length} items`);
-        return items;
-      }
-    } catch (err) {
-      logScrape("Carrefour", `Scraper service error: ${err.message}`);
-    }
-
-    try {
-      const items = await scrapeCarrefourViaJina(query);
-      if (items.length > 0) return items;
-    } catch (err) {
-      console.log(`[Carrefour] Jina fallback error: ${err.message}`);
-    }
-
-    return [];
-  }
-
+  // Fallback to local Puppeteer
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -676,7 +725,10 @@ async function compareIngredients(ingredients) {
 
 async function searchProduct(product, market) {
   if (market === "sok") {
-    return await withTimeout(`searchProduct sok:${product}`, scrapeSok(product));
+    return await withTimeout(
+      `searchProduct sok:${product}`,
+      scrapeSok(product),
+    );
   }
   if (market === "carrefour") {
     return await withTimeout(
@@ -689,10 +741,12 @@ async function searchProduct(product, market) {
 
 async function searchMultiple(product) {
   const [sok, carrefour] = await Promise.all([
-    withTimeout(`searchMultiple sok:${product}`, scrapeSok(product)).catch((err) => {
-      logScrape("Sok", err.message);
-      return [];
-    }),
+    withTimeout(`searchMultiple sok:${product}`, scrapeSok(product)).catch(
+      (err) => {
+        logScrape("Sok", err.message);
+        return [];
+      },
+    ),
     withTimeout(
       `searchMultiple carrefour:${product}`,
       scrapeCarrefour(product),
@@ -714,4 +768,3 @@ module.exports = {
   searchMultiple,
   parseCarrefourHtml,
 };
-

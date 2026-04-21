@@ -10,20 +10,20 @@ services:
         value: 18
       - key: SCRAPER_API_KEY
         value: 75476a526602a90ef5aa68cbabec741c
-      - key: CARREFOUR_PROXY_MODE
-        value: fallback
-      - key: CARREFOUR_PROXY_REGION
-        value: TR
-      - key: CARREFOUR_PROXY_TIMEOUT_MS
-        value: 30000
+      - key: CARREFOUR_SCRAPER_SERVICE
+        value: ""
+      - key: CARREFOUR_COOKIE
+        sync: false
+      - key: CARREFOUR_ACCEPT_LANGUAGE
+        value: tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
+      - key: CARREFOUR_REFERER
+        value: https://www.carrefoursa.com/search/?q=sut
       - key: CARREFOUR_DEBUG
-        value: 0
-      - key: CARREFOUR_MIRROR_FALLBACK
         value: 1
       - key: SEARCH_TIMEOUT_MS
-        value: 25000
+        value: 30000
       - key: JINA_TIMEOUT_MS
-        value: 20000
+        value: 25000
       - key: FIREBASE_VAPID_PUBLIC_KEY
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
