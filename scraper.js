@@ -6,6 +6,9 @@ puppeteer.use(StealthPlugin());
 const NAV_TIMEOUT_MS = 60000;
 const SEARCH_TIMEOUT_MS = Number(process.env.SEARCH_TIMEOUT_MS || 25000);
 const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
+const CARREFOUR_TIMEOUT_MS = Number(
+  process.env.CARREFOUR_TIMEOUT_MS || Math.max(45000, SEARCH_TIMEOUT_MS),
+);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const IS_CLOUD = Boolean(
@@ -33,6 +36,45 @@ const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
+function normalizeCookieHeader(rawCookie) {
+  const input = String(rawCookie || "").trim();
+  if (!input) return "";
+
+  if (input.startsWith("[") || input.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(input);
+      const cookieArray = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed.cookies)
+          ? parsed.cookies
+          : [];
+
+      const parts = cookieArray
+        .map((cookie) => {
+          const name = String(cookie?.name || "").trim();
+          const value = String(cookie?.value || "").trim();
+          if (!name) return "";
+          return `${name}=${value}`;
+        })
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        return parts.join("; ");
+      }
+    } catch (err) {
+      logCarrefourDebug("cookie parse error", err.message);
+    }
+  }
+
+  return input
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+const CARREFOUR_COOKIE_HEADER = normalizeCookieHeader(CARREFOUR_COOKIE);
+
 function logCarrefourDebug(message, extra) {
   if (!CARREFOUR_DEBUG) return;
   console.log(`[Carrefour][Debug] ${message}`, extra || "");
@@ -59,13 +101,16 @@ async function withTimeout(label, promise, timeoutMs = SEARCH_TIMEOUT_MS) {
 }
 
 function carrefourRequestHeaders(referer) {
+  const refererUrl = referer || CARREFOUR_REFERER;
   const headers = {
     Accept:
       "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Language": CARREFOUR_ACCEPT_LANGUAGE,
     "Cache-Control": "max-age=0",
+    Origin: "https://www.carrefoursa.com",
+    Pragma: "no-cache",
     Priority: "u=0, i",
-    Referer: referer || CARREFOUR_REFERER,
+    Referer: refererUrl,
     "Sec-CH-UA":
       '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
     "Sec-CH-UA-Mobile": "?0",
@@ -78,7 +123,11 @@ function carrefourRequestHeaders(referer) {
     "User-Agent": CHROME_USER_AGENT,
   };
 
-  if (CARREFOUR_COOKIE) headers.Cookie = CARREFOUR_COOKIE;
+  if (/^https:\/\/www\.carrefoursa\.com\/?/i.test(refererUrl)) {
+    headers["Sec-Fetch-Site"] = "same-origin";
+  }
+
+  if (CARREFOUR_COOKIE_HEADER) headers.Cookie = CARREFOUR_COOKIE_HEADER;
   return headers;
 }
 
@@ -138,6 +187,124 @@ function dedupeItems(items) {
   }
 
   return [...map.values()];
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractItemsFromUnknownJson(input, market = "Carrefour") {
+  const out = [];
+  const queue = [input];
+  const seen = new Set();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    const name = normalizeText(
+      current.name ||
+        current.productName ||
+        current.displayName ||
+        current.title ||
+        current.shortName,
+    );
+    const price =
+      parsePriceValue(
+        current.price ||
+          current.formattedPrice ||
+          current.salePrice ||
+          current.discountedPrice ||
+          current.finalPrice ||
+          current.priceText,
+      ) ||
+      Number(
+        current.priceValue ||
+          current.price ||
+          current.salePriceValue ||
+          current.discountedPriceValue,
+      );
+    const image = normalizeText(
+      current.image ||
+        current.imageUrl ||
+        current.imageURL ||
+        current.thumbnail ||
+        current.thumbnailUrl,
+    );
+
+    if (name && Number.isFinite(price) && price > 0) {
+      out.push({ market, name, price, image });
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  return dedupeItems(out);
+}
+
+function parseCarrefourStructuredData(html) {
+  const normalizedHtml = String(html || "");
+  const items = [];
+
+  const ldJsonPattern =
+    /<script[^>]*type="application\/(?:ld\+)?json"[^>]*>([\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  while ((scriptMatch = ldJsonPattern.exec(normalizedHtml)) !== null) {
+    const raw = decodeHtmlEntities(scriptMatch[1]).trim();
+    if (!raw) continue;
+    try {
+      items.push(...extractItemsFromUnknownJson(JSON.parse(raw)));
+    } catch (_) {}
+  }
+
+  const nextDataPattern =
+    /<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i;
+  const nextDataMatch = normalizedHtml.match(nextDataPattern);
+  if (nextDataMatch?.[1]) {
+    try {
+      items.push(
+        ...extractItemsFromUnknownJson(
+          JSON.parse(decodeHtmlEntities(nextDataMatch[1])),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  const inlineJsonPatterns = [
+    /"products"\s*:\s*(\[[\s\S]*?\])/gi,
+    /"productList"\s*:\s*(\[[\s\S]*?\])/gi,
+    /"searchResults"\s*:\s*(\[[\s\S]*?\])/gi,
+  ];
+
+  for (const pattern of inlineJsonPatterns) {
+    let match;
+    while ((match = pattern.exec(normalizedHtml)) !== null) {
+      try {
+        items.push(
+          ...extractItemsFromUnknownJson(JSON.parse(decodeHtmlEntities(match[1]))),
+        );
+      } catch (_) {}
+    }
+  }
+
+  return dedupeItems(items);
 }
 
 function carrefourQueryVariants(product) {
@@ -227,6 +394,9 @@ function parseCarrefourHtml(html) {
 
   const items = [];
   const seen = new Set();
+
+  const structuredItems = parseCarrefourStructuredData(normalizedHtml);
+  if (structuredItems.length > 0) return structuredItems;
 
   const cardPatterns = [
     /<li[^>]*data-testid="product-card"[^>]*>[\s\S]*?<\/li>/gi,
@@ -460,15 +630,23 @@ async function fetchCarrefourViaScraperService(query) {
 }
 
 async function fetchCarrefourViaSession(query) {
-  if (!CARREFOUR_COOKIE) {
+  if (!CARREFOUR_COOKIE_HEADER) {
     throw new Error("CARREFOUR_COOKIE is missing");
   }
 
   const targetUrl = `https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}`;
+  const warmupUrl = CARREFOUR_REFERER || "https://www.carrefoursa.com/";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
+    await fetch(warmupUrl, {
+      headers: carrefourRequestHeaders("https://www.carrefoursa.com/"),
+      signal: controller.signal,
+    }).catch((err) => {
+      logCarrefourDebug("session warmup error", err.message);
+    });
+
     const response = await fetch(targetUrl, {
       headers: carrefourRequestHeaders(targetUrl),
       signal: controller.signal,
@@ -734,6 +912,7 @@ async function searchProduct(product, market) {
     return await withTimeout(
       `searchProduct carrefour:${product}`,
       scrapeCarrefour(product),
+      CARREFOUR_TIMEOUT_MS,
     );
   }
   return [];
@@ -750,6 +929,7 @@ async function searchMultiple(product) {
     withTimeout(
       `searchMultiple carrefour:${product}`,
       scrapeCarrefour(product),
+      CARREFOUR_TIMEOUT_MS,
     ).catch((err) => {
       logScrape("Carrefour", err.message);
       return [];

@@ -24,6 +24,8 @@ services:
         value: 30000
       - key: JINA_TIMEOUT_MS
         value: 25000
+      - key: CARREFOUR_TIMEOUT_MS
+        value: 45000
       - key: FIREBASE_VAPID_PUBLIC_KEY
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
