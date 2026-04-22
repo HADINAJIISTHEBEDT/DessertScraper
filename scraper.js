@@ -80,6 +80,45 @@ function logCarrefourDebug(message, extra) {
   console.log(`[Carrefour][Debug] ${message}`, extra || "");
 }
 
+function carrefourHtmlSnapshot(html) {
+  const text = normalizeText(
+    String(html || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  );
+
+  return {
+    length: String(html || "").length,
+    blocked: /attention required|cloudflare|captcha|security check|blocked/i.test(
+      String(html || ""),
+    ),
+    title:
+      String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ||
+      "",
+    sample: text.slice(0, 240),
+  };
+}
+
+function logCarrefourReturn(source, payload) {
+  if (!CARREFOUR_DEBUG) return;
+
+  if (typeof payload === "string") {
+    logCarrefourDebug(`${source} html`, carrefourHtmlSnapshot(payload));
+    return;
+  }
+
+  if (Array.isArray(payload)) {
+    logCarrefourDebug(`${source} items`, {
+      count: payload.length,
+      first: payload[0] || null,
+    });
+    return;
+  }
+
+  logCarrefourDebug(`${source} payload`, payload);
+}
+
 function logScrape(stage, message) {
   console.log(`[Scraper][${stage}] ${message}`);
 }
@@ -396,7 +435,10 @@ function parseCarrefourHtml(html) {
   const seen = new Set();
 
   const structuredItems = parseCarrefourStructuredData(normalizedHtml);
-  if (structuredItems.length > 0) return structuredItems;
+  if (structuredItems.length > 0) {
+    logCarrefourReturn("structured-data parser", structuredItems);
+    return structuredItems;
+  }
 
   const cardPatterns = [
     /<li[^>]*data-testid="product-card"[^>]*>[\s\S]*?<\/li>/gi,
@@ -448,7 +490,11 @@ function parseCarrefourHtml(html) {
     items.push({ market: "Carrefour", name, price, image });
   }
 
-  if (items.length > 0) return dedupeItems(items);
+  if (items.length > 0) {
+    const deduped = dedupeItems(items);
+    logCarrefourReturn("card parser", deduped);
+    return deduped;
+  }
 
   const text = normalizeText(
     normalizedHtml
@@ -492,7 +538,9 @@ function parseCarrefourHtml(html) {
     textItems.push({ market: "Carrefour", name, price, image: "" });
   }
 
-  return dedupeItems(textItems);
+  const dedupedTextItems = dedupeItems(textItems);
+  logCarrefourReturn("text parser", dedupedTextItems);
+  return dedupedTextItems;
 }
 
 async function extractCarrefourItemsFromPage(page) {
@@ -621,9 +669,18 @@ async function fetchCarrefourViaScraperService(query) {
       signal: controller.signal,
     });
 
+    logCarrefourDebug("scraper service response", {
+      query,
+      status: response.status,
+      ok: response.ok,
+      url: resolvedUrl.includes("scraperapi.com") ? "scraperapi" : resolvedUrl,
+    });
+
     if (!response.ok)
       throw new Error(`scraper service HTTP ${response.status}`);
-    return await response.text();
+    const html = await response.text();
+    logCarrefourReturn("scraper service", html);
+    return html;
   } finally {
     clearTimeout(timeout);
   }
@@ -651,11 +708,19 @@ async function fetchCarrefourViaSession(query) {
       headers: carrefourRequestHeaders(targetUrl),
       signal: controller.signal,
     });
-    logCarrefourDebug("session fetch status", response.status);
+    logCarrefourDebug("session fetch response", {
+      query,
+      status: response.status,
+      ok: response.ok,
+      redirected: response.redirected,
+      finalUrl: response.url,
+    });
     if (!response.ok && response.status !== 304) {
       throw new Error(`session HTTP ${response.status}`);
     }
-    return await response.text();
+    const html = await response.text();
+    logCarrefourReturn("session fetch", html);
+    return html;
   } finally {
     clearTimeout(timeout);
   }
@@ -703,9 +768,11 @@ async function scrapeCarrefourViaJina(product) {
         "Carrefour Jina fetch",
         fetchViaJinaReader(url),
       );
+      logCarrefourReturn(`jina raw ${query}`, text);
       const items = parseCarrefourHtml(text);
       if (items.length > 0) {
         logScrape("Carrefour", `Jina returned ${items.length} items`);
+        logCarrefourReturn(`jina parsed ${query}`, items);
         return items;
       }
     } catch (err) {
@@ -728,6 +795,7 @@ async function scrapeCarrefour(product) {
       const items = parseCarrefourHtml(html);
       if (items.length > 0) {
         logScrape("Carrefour", `Cloud scraper returned ${items.length} items`);
+        logCarrefourReturn("cloud scraper parsed", items);
         return items;
       }
     } catch (err) {
@@ -742,6 +810,7 @@ async function scrapeCarrefour(product) {
         const items = parseCarrefourHtml(html);
         if (items.length > 0) {
           logScrape("Carrefour", `Session returned ${items.length} items`);
+          logCarrefourReturn("cloud session parsed", items);
           return items;
         }
       } catch (err) {
@@ -769,6 +838,7 @@ async function scrapeCarrefour(product) {
       const items = parseCarrefourHtml(html);
       if (items.length > 0) {
         logScrape("Carrefour", `Session fetch returned ${items.length} items`);
+        logCarrefourReturn("local session parsed", items);
         return items;
       }
     } catch (err) {
@@ -820,12 +890,17 @@ async function scrapeCarrefour(product) {
     await delay(4000);
 
     const html = await page.content();
+    logCarrefourReturn("puppeteer html", html);
     let items = parseCarrefourHtml(html);
-    if (items.length > 0) return items;
+    if (items.length > 0) {
+      logCarrefourReturn("puppeteer parsed html", items);
+      return items;
+    }
 
     items = await extractCarrefourItemsFromPage(page).catch(() => []);
     if (items.length > 0) {
       logScrape("Carrefour", `Local puppeteer extracted ${items.length} items`);
+      logCarrefourReturn("puppeteer dom extract", items);
     }
     return items;
   } catch (err) {
