@@ -9,7 +9,7 @@ const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
 const MIGROS_TIMEOUT_MS = Number(
   process.env.MIGROS_TIMEOUT_MS || Math.max(45000, SEARCH_TIMEOUT_MS),
 );
-const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || 30);
+const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || 20);
 const MIGROS_ACCEPT_LANGUAGE = String(
   process.env.MIGROS_ACCEPT_LANGUAGE || "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
 ).trim();
