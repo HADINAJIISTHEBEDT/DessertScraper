@@ -9,6 +9,7 @@ const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
 const MIGROS_TIMEOUT_MS = Number(
   process.env.MIGROS_TIMEOUT_MS || Math.max(45000, SEARCH_TIMEOUT_MS),
 );
+const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || 30);
 const MIGROS_ACCEPT_LANGUAGE = String(
   process.env.MIGROS_ACCEPT_LANGUAGE || "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
 ).trim();
@@ -351,6 +352,7 @@ async function extractMigrosItemsFromPage(page) {
     );
     const out = [];
     const seen = new Set();
+    const links = cards;
 
     const findContainer = (node) => {
       let current = node;
@@ -416,6 +418,113 @@ function migrosRequestHeaders(referer) {
   };
 }
 
+function migrosApiHeaders(referer) {
+  return {
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": MIGROS_ACCEPT_LANGUAGE,
+    Referer: referer || MIGROS_REFERER,
+    "User-Agent": CHROME_USER_AGENT,
+    "X-Requested-With": "XMLHttpRequest",
+  };
+}
+
+function mapMigrosApiItem(item) {
+  const priceCandidates = [
+    item?.crmDiscountedSalePrice,
+    item?.salePrice,
+    item?.shownPrice,
+    item?.regularPrice,
+  ];
+  const rawPrice = priceCandidates.find(
+    (value) => Number.isFinite(Number(value)) && Number(value) > 0,
+  );
+  const price = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) / 100 : null;
+  const image = normalizeText(
+    item?.images?.[0]?.urls?.PRODUCT_LIST ||
+      item?.images?.[0]?.urls?.PRODUCT_DETAIL ||
+      item?.images?.[0]?.urls?.PRODUCT_HD ||
+      "",
+  );
+
+  if (!item?.name || !Number.isFinite(price) || price <= 0) {
+    return null;
+  }
+
+  return {
+    market: "Migros",
+    name: normalizeText(item.name),
+    price,
+    image,
+  };
+}
+
+async function fetchMigrosApiPage(query, page = 1) {
+  const targetUrl =
+    `https://www.migros.com.tr/rest/search/screens/products?q=${encodeURIComponent(query)}` +
+    `&page=${page}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MIGROS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(targetUrl, {
+      headers: migrosApiHeaders(`https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`),
+      signal: controller.signal,
+    });
+
+    logMigrosDebug("api fetch response", {
+      query,
+      page,
+      status: response.status,
+      ok: response.ok,
+      finalUrl: response.url,
+    });
+
+    if (!response.ok) {
+      throw new Error(`migros api HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const searchInfo = payload?.data?.searchInfo || {};
+    const items = dedupeItems(
+      (Array.isArray(searchInfo.storeProductInfos) ? searchInfo.storeProductInfos : [])
+        .map(mapMigrosApiItem)
+        .filter(Boolean),
+    );
+
+    return {
+      items,
+      pageCount: Number(searchInfo.pageCount || 1),
+      hitCount: Number(searchInfo.hitCount || items.length),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchMigrosApiResults(query, limit = MIGROS_RESULT_LIMIT) {
+  const results = [];
+  const seen = new Set();
+  let page = 1;
+  let pageCount = 1;
+
+  while (page <= pageCount && results.length < limit) {
+    const response = await fetchMigrosApiPage(query, page);
+    pageCount = Math.max(1, response.pageCount || 1);
+
+    for (const item of response.items) {
+      const key = `${item.name.toLowerCase()}|${Number(item.price).toFixed(2)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push(item);
+      if (results.length >= limit) break;
+    }
+
+    page += 1;
+  }
+
+  return results.slice(0, limit);
+}
+
 async function fetchMigrosHtml(query) {
   const targetUrl = `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`;
   const controller = new AbortController();
@@ -477,6 +586,18 @@ async function scrapeSok(product) {
 async function scrapeMigros(product) {
   const queries = migrosQueryVariants(product);
 
+  for (const query of queries) {
+    try {
+      const items = await fetchMigrosApiResults(query, MIGROS_RESULT_LIMIT);
+      if (items.length > 0) {
+        logScrape("Migros", `API returned ${items.length} items for "${query}"`);
+        return items.slice(0, MIGROS_RESULT_LIMIT);
+      }
+    } catch (err) {
+      logScrape("Migros", `API error for "${query}": ${err.message}`);
+    }
+  }
+
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -511,17 +632,20 @@ async function scrapeMigros(product) {
 
       await delay(4000);
 
-      let items = await extractMigrosItemsFromPage(page).catch(() => []);
+      let items = await extractMigrosItemsFromPage(page).catch((err) => {
+        logScrape("Migros", `Puppeteer DOM extract error for "${query}": ${err.message}`);
+        return [];
+      });
       if (items.length > 0) {
         logScrape("Migros", `Puppeteer DOM extract returned ${items.length} items for "${query}"`);
-        return items;
+        return items.slice(0, MIGROS_RESULT_LIMIT);
       }
 
       const html = await page.content();
       items = parseMigrosHtml(html);
       if (items.length > 0) {
         logScrape("Migros", `Puppeteer HTML parse returned ${items.length} items for "${query}"`);
-        return items;
+        return items.slice(0, MIGROS_RESULT_LIMIT);
       }
     }
   } catch (err) {
@@ -536,7 +660,7 @@ async function scrapeMigros(product) {
       const items = parseMigrosHtml(html);
       if (items.length > 0) {
         logScrape("Migros", `Direct fetch returned ${items.length} items for "${query}"`);
-        return items;
+        return items.slice(0, MIGROS_RESULT_LIMIT);
       }
     } catch (err) {
       logScrape("Migros", `Direct fetch error for "${query}": ${err.message}`);
@@ -555,7 +679,7 @@ async function scrapeMigros(product) {
       const items = parseMigrosFromJinaText(text);
       if (items.length > 0) {
         logScrape("Migros", `Jina returned ${items.length} items for "${query}"`);
-        return items;
+        return items.slice(0, MIGROS_RESULT_LIMIT);
       }
     } catch (err) {
       logScrape("Migros", `Jina error for "${query}": ${err.message}`);
