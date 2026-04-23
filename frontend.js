@@ -431,6 +431,7 @@ window.deleteDessert = function(index) { if (!confirm(`${t("deleteConfirm")} "${
 window.addNewDessert = function() { const name = prompt(t("enterDessertName")); if (!name||!name.trim()) return; desserts.push({name:name.trim(),days:5,hours:0,minutes:0,startTime:null,finished:false,ingredients:[]}); saveLocal(); render(); renderSettings(); renderDessertSelect(); };
 
 let _pickTarget = null;
+let _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece" };
 window.openPickModal = async function(dessertIndex, ingredientIndex) {
   _pickTarget = {dessertIndex, ingredientIndex};
   const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
@@ -456,13 +457,18 @@ window.runPickSearch = async function(query) {
   try {
     const res = await fetch(`${SCRAPER_API_BASE}/search-all`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({product:query}) });
     if (!res.ok) throw new Error(`API error ${res.status}`);
-    renderPickResults(await res.json(), quantity, quantityUnit);
+    const data = await res.json();
+    _pickState = { query, results: data, quantity, quantityUnit };
+    renderPickResults(data, quantity, quantityUnit);
   } catch(err) { resultsBox.innerHTML = `<p class="pick-error">Error: ${err.message}</p>`; }
 };
 
 function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
   const resultsBox = document.getElementById("pickResults");
   const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"migros",label:"Migros",color:"#2980b9"}];
+  const ing = _pickTarget
+    ? normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex])
+    : null;
   let html = '<div class="pick-markets-container">';
   markets.forEach(({key,label,color}) => {
     const items = data[key];
@@ -473,7 +479,9 @@ function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
       const img = item.image ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` : "<span>📦</span>";
       const estimated = estimateItemCost(item.price, quantity, quantityUnit, packageInfo);
       const packageLabel = packageInfo ? `${packageInfo.size} ${packageInfo.unit}` : "1 piece";
-      html += `<div class="pick-product-card"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)} from ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-market="${escapeAttr(key)}" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${t("select")}</button></div>`;
+      const selectedName = ing?.marketSelections?.[key]?.name || "";
+      const isSelected = selectedName && selectedName === item.name;
+      html += `<div class="pick-product-card ${isSelected ? "selected" : ""}"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)} from ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-market="${escapeAttr(key)}" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${isSelected ? "Selected" : t("select")}</button></div>`;
     });
     html += `</div></div>`;
   });
@@ -509,8 +517,9 @@ window.applyPickedItem = function(market, name, packageSize, packageUnit) {
   if (packEl && packageSize) packEl.value = packageSize;
   if (packUnitEl && packageUnit) packUnitEl.value = packageUnit;
   saveLocal();
-  renderSettings();
-  closePickModal();
+  if (_pickState.results) {
+    renderPickResults(_pickState.results, _pickState.quantity, _pickState.quantityUnit);
+  }
 };
 
 function renderIngredientsSettings() {

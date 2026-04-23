@@ -321,6 +321,15 @@ function parseMigrosHtml(html) {
 }
 
 async function extractMigrosItemsFromPage(page) {
+  let previousHeight = 0;
+  for (let i = 0; i < 8; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await delay(1200);
+    const height = await page.evaluate(() => document.body.scrollHeight);
+    if (height === previousHeight) break;
+    previousHeight = height;
+  }
+
   const items = await page.evaluate(() => {
     const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const parsePrice = (text) => {
@@ -333,16 +342,35 @@ async function extractMigrosItemsFromPage(page) {
       return Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
     };
 
-    const cards = Array.from(document.querySelectorAll('a[href*="-p-"]'));
+    const cards = Array.from(
+      new Set([
+        ...document.querySelectorAll("fe-product-card"),
+        ...document.querySelectorAll("mat-card"),
+        ...document.querySelectorAll('[class*="product-card"]'),
+      ]),
+    );
     const out = [];
     const seen = new Set();
 
-    cards.forEach((card) => {
+    const findContainer = (node) => {
+      let current = node;
+      for (let i = 0; i < 8 && current; i++) {
+        const text = normalize(current.innerText || "");
+        if (text && /(?:₺|TL)/i.test(text)) return current;
+        current = current.parentElement;
+      }
+      return node;
+    };
+
+    links.forEach((link) => {
+      const card = findContainer(link);
       const rawText = normalize(card.innerText || "");
       if (!rawText) return;
 
       const name =
         normalize(card.querySelector("h1, h2, h3, h4")?.textContent) ||
+        normalize(link.getAttribute("title")) ||
+        normalize(link.querySelector("img")?.getAttribute("alt")) ||
         normalize(rawText.split("\n")[0]);
       const price = parsePrice(rawText);
       if (!name || !Number.isFinite(price) || price <= 0 || price > 5000) return;
@@ -350,6 +378,8 @@ async function extractMigrosItemsFromPage(page) {
       const image =
         card.querySelector("img")?.currentSrc ||
         card.querySelector("img")?.src ||
+        link.querySelector("img")?.currentSrc ||
+        link.querySelector("img")?.src ||
         "";
       const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
       if (seen.has(key)) return;
@@ -447,6 +477,59 @@ async function scrapeSok(product) {
 async function scrapeMigros(product) {
   const queries = migrosQueryVariants(product);
 
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-extensions",
+        "--disable-infobars",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--mute-audio",
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setUserAgent(CHROME_USER_AGENT);
+
+    for (const query of queries) {
+      await page.setExtraHTTPHeaders(
+        migrosRequestHeaders(
+          `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
+        ),
+      );
+      await page.goto(
+        `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
+        { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS },
+      );
+
+      await delay(4000);
+
+      let items = await extractMigrosItemsFromPage(page).catch(() => []);
+      if (items.length > 0) {
+        logScrape("Migros", `Puppeteer DOM extract returned ${items.length} items for "${query}"`);
+        return items;
+      }
+
+      const html = await page.content();
+      items = parseMigrosHtml(html);
+      if (items.length > 0) {
+        logScrape("Migros", `Puppeteer HTML parse returned ${items.length} items for "${query}"`);
+        return items;
+      }
+    }
+  } catch (err) {
+    logScrape("Migros", `Local puppeteer error: ${err.message}`);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+
   for (const query of queries) {
     try {
       const html = await fetchMigrosHtml(query);
@@ -479,58 +562,7 @@ async function scrapeMigros(product) {
     }
   }
 
-  let browser;
-  try {
-    const query = queries[0];
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-extensions",
-        "--disable-infobars",
-        "--disable-gpu",
-        "--hide-scrollbars",
-        "--mute-audio",
-      ],
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(CHROME_USER_AGENT);
-    await page.setExtraHTTPHeaders(
-      migrosRequestHeaders(
-        `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
-      ),
-    );
-
-    await page.goto(
-      `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
-      { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS },
-    );
-
-    await delay(4000);
-
-    const html = await page.content();
-    let items = parseMigrosHtml(html);
-    if (items.length > 0) {
-      logScrape("Migros", `Puppeteer HTML parse returned ${items.length} items`);
-      return items;
-    }
-
-    items = await extractMigrosItemsFromPage(page).catch(() => []);
-    if (items.length > 0) {
-      logScrape("Migros", `Puppeteer DOM extract returned ${items.length} items`);
-    }
-    return items;
-  } catch (err) {
-    logScrape("Migros", `Local puppeteer error: ${err.message}`);
-    return [];
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-  }
+  return [];
 }
 
 async function compareIngredients(ingredients) {
