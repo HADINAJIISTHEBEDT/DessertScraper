@@ -8,8 +8,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 18
-      - key: SCRAPER_API_KEY
-        value: 75476a526602a90ef5aa68cbabec741c
       - key: MIGROS_ACCEPT_LANGUAGE
         value: tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
       - key: MIGROS_REFERER
