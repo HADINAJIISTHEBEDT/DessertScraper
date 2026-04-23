@@ -37,8 +37,8 @@ const translations = {
     marketPrices: "Market Prices", dessert: "Dessert", findCheapestBtn: "Find Cheapest Market",
     marketHint: "Uses ingredient quantities from Settings.",
     ingredient: "Ingredient", qty: "Qty", unit: "Unit", cost: "Cost", best: "Best",
-    totalSok: "Total Şok", totalCarrefour: "Total Carrefour", cheapestMarket: "Cheapest Market",
-    searching: "Searching Şok and Carrefour, please wait…",
+    totalSok: "Total Şok", totalMigros: "Total Migros", cheapestMarket: "Cheapest Market",
+    searching: "Searching Şok and Migros, please wait…",
     selectDessert: "Please select a dessert.", addIngredientsFirst: "Please add ingredients in Settings first.",
     marketServiceError: "Market service error",
     timerSettings: "Timer Settings", days: "days", hours: "hours", minutes: "minutes",
@@ -46,7 +46,7 @@ const translations = {
     ingredientsTitle: "Ingredients and Quantity", addIngredientBtn: "+ Add Ingredient",
     ingredientName: "Ingredient", description: "Description / Brand", need: "Need",
     perPackage: "per package:", packSize: "Pack size", pickFromMarket: "🛒 Pick from Market",
-    openSok: "Open Şok", openCarrefour: "Open Carrefour",
+    openSok: "Open Şok", openMigros: "Open Migros",
     ingredientNameRequired: "Ingredient name is required.",
     quantityMustBeGreater: "Needed quantity must be greater than 0.",
     packageSizeMustBeGreater: "Package size must be greater than 0.",
@@ -55,7 +55,7 @@ const translations = {
     pickItemFromMarket: "🛒 Pick Item from Market", typeProductName: "Type product name and press Enter…",
     searchBtn: "Search", modalHint: "The scraped name will fill the ingredient name field.",
     clearResults: "Clear Results", closeBtn: "Close",
-    searchingFor: "Searching Şok and Carrefour for", noResultsFound: "No results found", select: "Select",
+    searchingFor: "Searching Şok and Migros for", noResultsFound: "No results found", select: "Select",
     deleteConfirm: "Delete", enterDessertName: "Enter dessert name:",
     quantityToSearch: "Quantity", quantityUnit: "Unit", estimatedCost: "Estimated Cost",
     language: "Language", english: "English", arabic: "العربية",
@@ -69,8 +69,8 @@ const translations = {
     marketPrices: "أسعار السوق", dessert: "الحلوى", findCheapestBtn: "البحث عن أرخص سوق",
     marketHint: "يستخدم كميات المكونات من الإعدادات.",
     ingredient: "المكون", qty: "الكمية", unit: "الوحدة", cost: "التكلفة", best: "الأفضل",
-    totalSok: "إجمالي شوك", totalCarrefour: "إجمالي كارفور", cheapestMarket: "أرخص سوق",
-    searching: "جاري البحث في شوك وكارفور، يرجى الانتظار…",
+    totalSok: "إجمالي شوك", totalMigros: "إجمالي ميغروس", cheapestMarket: "أرخص سوق",
+    searching: "جاري البحث في شوك وميغروس، يرجى الانتظار…",
     selectDessert: "يرجى اختيار حلوى.", addIngredientsFirst: "يرجى إضافة المكونات في الإعدادات أولاً.",
     marketServiceError: "خطأ في خدمة السوق",
     timerSettings: "إعدادات المؤقت", days: "أيام", hours: "ساعات", minutes: "دقائق",
@@ -78,7 +78,7 @@ const translations = {
     ingredientsTitle: "المكونات والكمية", addIngredientBtn: "+ إضافة مكون",
     ingredientName: "المكون", description: "الوصف / العلامة التجارية", need: "الكمية المطلوبة",
     perPackage: "لكل عبوة:", packSize: "حجم العبوة", pickFromMarket: "🛒 اختيار من السوق",
-    openSok: "فتح شوك", openCarrefour: "فتح كارفور",
+    openSok: "فتح شوك", openMigros: "فتح ميغروس",
     ingredientNameRequired: "اسم المكون مطلوب.",
     quantityMustBeGreater: "يجب أن تكون الكمية المطلوبة أكبر من 0.",
     packageSizeMustBeGreater: "يجب أن يكون حجم العبوة أكبر من 0.",
@@ -439,7 +439,7 @@ window.runPickSearch = async function(query) {
 
 function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
   const resultsBox = document.getElementById("pickResults");
-  const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"carrefour",label:"Carrefour",color:"#2980b9"}];
+  const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"migros",label:"Migros",color:"#2980b9"}];
   let html = '<div class="pick-markets-container">';
   markets.forEach(({key,label,color}) => {
     const items = data[key];
@@ -490,7 +490,7 @@ function renderIngredientsSettings() {
     if (!ings.length) { const empty = document.createElement("div"); empty.className = "no-ingredients"; empty.textContent = t("noIngredientsYet"); list.appendChild(empty); return; }
     ings.forEach((ing, ii) => {
       const s = normalizeIngredient(ing), row = document.createElement("div"); row.className = "ingredient-row";
-      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${s.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${s.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${s.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(s.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${s.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(s.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button><button onclick="openMarketLink('sok',${di},${ii})">${t("openSok")}</button><button onclick="openMarketLink('carrefour',${di},${ii})">${t("openCarrefour")}</button><button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>`;
+      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${s.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${s.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${s.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(s.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${s.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(s.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button><button onclick="openMarketLink('sok',${di},${ii})">${t("openSok")}</button><button onclick="openMarketLink('migros',${di},${ii})">${t("openMigros")}</button><button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>`;
       list.appendChild(row);
     });
   });
@@ -529,9 +529,9 @@ window.findCheapestForSelectedDessert = async function() {
 
 function renderMarketResult(data) {
   const resultBox = document.getElementById("marketResult"), rows = Array.isArray(data.rows)?data.rows:[], totals = data.totals||{}, cheapest = data.cheapestMarket||"N/A", cheapestTotal = Number(data.cheapestTotal||0);
-  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>Şok ${t("unit")}</th><th>Şok ${t("cost")}</th><th>Carrefour ${t("unit")}</th><th>Carrefour ${t("cost")}</th></tr></thead><tbody>`;
-  rows.forEach(r => { html += `<tr><td>${r.ingredient}</td><td>${r.quantity}</td><td>${formatTryPrice(r.sok?.unitPrice)}</td><td>${formatTryPrice(r.sok?.cost)}</td><td>${formatTryPrice(r.carrefour?.unitPrice)}</td><td>${formatTryPrice(r.carrefour?.cost)}</td></tr>`; });
-  html += `</tbody></table><p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>${t("totalCarrefour")}:</strong> ${formatTryPrice(totals.carrefour)}</p><p class="best-market">${t("cheapestMarket")}: ${cheapest} (${formatTryPrice(cheapestTotal)})</p>`;
+  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>Şok ${t("unit")}</th><th>Şok ${t("cost")}</th><th>Migros ${t("unit")}</th><th>Migros ${t("cost")}</th></tr></thead><tbody>`;
+  rows.forEach(r => { html += `<tr><td>${r.ingredient}</td><td>${r.quantity}</td><td>${formatTryPrice(r.sok?.unitPrice)}</td><td>${formatTryPrice(r.sok?.cost)}</td><td>${formatTryPrice(r.migros?.unitPrice)}</td><td>${formatTryPrice(r.migros?.cost)}</td></tr>`; });
+  html += `</tbody></table><p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>${t("totalMigros")}:</strong> ${formatTryPrice(totals.migros)}</p><p class="best-market">${t("cheapestMarket")}: ${cheapest} (${formatTryPrice(cheapestTotal)})</p>`;
   resultBox.innerHTML = html;
 }
 
@@ -539,7 +539,7 @@ window.openMarketLink = function(market, di, ii) {
   const nameEl = document.getElementById(`ing_name_${di}_${ii}`), descEl = document.getElementById(`ing_desc_${di}_${ii}`);
   const query = [(nameEl?.value||"").trim(),(descEl?.value||"").trim()].filter(Boolean).join(" ").trim();
   if (!query) { alert(t("writeIngredientFirst")); return; }
-  const urls = { sok:`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}`, carrefour:`https://www.carrefoursa.com/search/?q=${encodeURIComponent(query)}` };
+  const urls = { sok:`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}`, migros:`https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}` };
   if (urls[market]) window.open(urls[market], "_blank");
 };
 

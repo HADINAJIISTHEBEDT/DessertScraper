@@ -17,9 +17,9 @@ if "%PORT%"=="" (
     set PORT=13000
 )
 
-if exist "carrefour-local.env.bat" (
-    echo Loading local Carrefour session...
-    call carrefour-local.env.bat
+if exist "migros-local.env.bat" (
+    echo Loading local Migros settings...
+    call migros-local.env.bat
     echo.
 )
 

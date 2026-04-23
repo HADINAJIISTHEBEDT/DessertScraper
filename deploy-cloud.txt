@@ -25,14 +25,11 @@ npm install --ignore-scripts && npx puppeteer browsers install chrome
 Start command for Render:
 node server.js
 
-Carrefour proxy environment variables:
-CARREFOUR_PROXY_MODE=fallback
-CARREFOUR_PROXY_ENDPOINT=https://your-proxy-endpoint
-CARREFOUR_PROXY_API_KEY=your_proxy_api_key
-CARREFOUR_PROXY_REGION=TR
-CARREFOUR_PROXY_TIMEOUT_MS=30000
-CARREFOUR_DEBUG=0
-CARREFOUR_MIRROR_FALLBACK=1
+Migros environment variables:
+MIGROS_ACCEPT_LANGUAGE=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
+MIGROS_REFERER=https://www.migros.com.tr/arama?q=sut
+MIGROS_DEBUG=1
+MIGROS_TIMEOUT_MS=30000
 
 Modes:
 - off: use direct Puppeteer only

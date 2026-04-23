@@ -74,7 +74,9 @@ function parseRequestBody(rawBody) {
 }
 
 function normalizeMarket(value) {
-  return String(value || "").trim().toLowerCase();
+  const market = String(value || "").trim().toLowerCase();
+  if (market === "carrefour") return "migros";
+  return market;
 }
 
 async function routeApiRequest(method, urlPath, body) {
@@ -122,8 +124,8 @@ async function routeApiRequest(method, urlPath, body) {
     if (!product) {
       throw new HttpError(400, "product name is required");
     }
-    if (!["sok", "carrefour"].includes(market)) {
-      throw new HttpError(400, "market must be sok or carrefour");
+    if (!["sok", "migros"].includes(market)) {
+      throw new HttpError(400, "market must be sok or migros");
     }
     return jsonResponse(
       200,
