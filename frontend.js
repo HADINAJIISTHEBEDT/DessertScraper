@@ -344,6 +344,13 @@ function normalizeIngredient(ing) {
   };
 }
 
+function buildIngredientSearchQuery(name, description) {
+  return [(name || "").trim(), (description || "").trim()]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
 window.login = function() {
   const email = (document.getElementById("email").value||"").trim(), password = document.getElementById("password").value||"";
   if (email !== AUTO_EMAIL || password !== AUTO_PASSWORD) { alert(t("loginError")); return; }
@@ -439,12 +446,14 @@ function currentPickSelections() { return _pickState?.draftSelections || { sok: 
 window.openPickModal = async function(dessertIndex, ingredientIndex) {
   _pickTarget = {dessertIndex, ingredientIndex};
   const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
+  const descEl = document.getElementById(`ing_desc_${dessertIndex}_${ingredientIndex}`);
   const unitEl = document.getElementById(`ing_unit_${dessertIndex}_${ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${dessertIndex}_${ingredientIndex}`);
   const ing = normalizeIngredient(desserts[dessertIndex]?.ingredients?.[ingredientIndex]);
   const modal = document.getElementById("pickModal"), searchInput = document.getElementById("pickSearchInput"), qtyInput = document.getElementById("pickQuantityInput"), qtyUnit = document.getElementById("pickQuantityUnit"), resultsBox = document.getElementById("pickResults");
+  const searchQuery = buildIngredientSearchQuery(nameEl?.value, descEl?.value) || buildIngredientSearchQuery(ing.name, ing.description);
   _pickState = {
-    query: "",
+    query: searchQuery,
     results: null,
     quantity: Number(qtyEl?.value || "1") || 1,
     quantityUnit: unitEl?.value || "piece",
@@ -453,7 +462,7 @@ window.openPickModal = async function(dessertIndex, ingredientIndex) {
       migros: ing.marketSelections?.migros ? { ...ing.marketSelections.migros } : null,
     },
   };
-  searchInput.value = (nameEl?.value||"").trim(); resultsBox.innerHTML = ""; modal.classList.remove("hidden");
+  searchInput.value = searchQuery; resultsBox.innerHTML = ""; modal.classList.remove("hidden");
   if (qtyInput) qtyInput.value = qtyEl?.value || "1";
   if (qtyUnit) qtyUnit.value = unitEl?.value || "piece";
   if (searchInput.value) await runPickSearch(searchInput.value);
@@ -636,7 +645,7 @@ function renderMarketResult(data) {
 
 window.openMarketLink = function(market, di, ii) {
   const nameEl = document.getElementById(`ing_name_${di}_${ii}`), descEl = document.getElementById(`ing_desc_${di}_${ii}`);
-  const query = [(nameEl?.value||"").trim(),(descEl?.value||"").trim()].filter(Boolean).join(" ").trim();
+  const query = buildIngredientSearchQuery(nameEl?.value, descEl?.value);
   if (!query) { alert(t("writeIngredientFirst")); return; }
   const urls = { sok:`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}`, migros:`https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}` };
   if (urls[market]) window.open(urls[market], "_blank");
