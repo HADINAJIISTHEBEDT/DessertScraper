@@ -10,8 +10,7 @@ const MIGROS_ACCEPT_LANGUAGE = String(
 const MIGROS_REFERER = String(
   process.env.MIGROS_REFERER || "https://www.migros.com.tr/arama?q=sut",
 ).trim();
-const MIGROS_DEBUG =
-  String(process.env.MIGROS_DEBUG || "").trim() === "1";
+const MIGROS_DEBUG = String(process.env.MIGROS_DEBUG || "").trim() === "1";
 
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -49,6 +48,22 @@ function normalizeText(value) {
     .trim();
 }
 
+function toAsciiTurkish(value) {
+  return String(value || "")
+    .replace(/ı/g, "i")
+    .replace(/İ/g, "I")
+    .replace(/ğ/g, "g")
+    .replace(/Ğ/g, "G")
+    .replace(/ü/g, "u")
+    .replace(/Ü/g, "U")
+    .replace(/ş/g, "s")
+    .replace(/Ş/g, "S")
+    .replace(/ö/g, "o")
+    .replace(/Ö/g, "O")
+    .replace(/ç/g, "c")
+    .replace(/Ç/g, "C");
+}
+
 function improveSearchQuery(query) {
   return String(query || "")
     .toLowerCase()
@@ -62,25 +77,30 @@ function improveSearchQuery(query) {
 }
 
 function migrosQueryVariants(query) {
-  const raw = String(query || "").toLowerCase().trim();
-  const improved = improveSearchQuery(query);
-  const variants = new Set([raw, improved]);
+  const raw = normalizeText(String(query || "").toLowerCase());
+  const improved = normalizeText(improveSearchQuery(query));
+  const asciiRaw = normalizeText(toAsciiTurkish(raw).toLowerCase());
+  const asciiImproved = normalizeText(toAsciiTurkish(improved).toLowerCase());
+  const variants = new Set([raw, improved, asciiRaw, asciiImproved]);
 
   if (raw.includes("süt")) variants.add(raw.replaceAll("süt", "sut"));
   if (improved.includes("süt")) variants.add(improved.replaceAll("süt", "sut"));
   if (raw.includes("yoğurt")) variants.add(raw.replaceAll("yoğurt", "yogurt"));
+  if (improved.includes("yoğurt")) variants.add(improved.replaceAll("yoğurt", "yogurt"));
   if (raw.includes("çilek")) variants.add(raw.replaceAll("çilek", "cilek"));
+  if (improved.includes("çilek")) variants.add(improved.replaceAll("çilek", "cilek"));
   if (raw.includes("kaşar")) variants.add(raw.replaceAll("kaşar", "kasar"));
+  if (improved.includes("kaşar")) variants.add(improved.replaceAll("kaşar", "kasar"));
 
-  return [...variants].filter(Boolean);
+  return [...variants].map(normalizeText).filter(Boolean);
 }
 
 function parsePriceValue(text) {
   if (!text) return null;
   const str = String(text);
   const match =
-    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:\u20BA|TL)/i) ||
-    str.match(/(?:\u20BA|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:₺|TL)/i) ||
+    str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
     str.match(/([\d]+[.,]\d{2})/);
 
   if (!match) return null;
@@ -138,12 +158,12 @@ function parseSokFromJinaText(text) {
   const out = [];
   const seen = new Set();
   const productPattern =
-    /\[!\[Image \d+: product-thumb\]\((https?:\/\/[^)]+)\)[^\]]*## ([^\]]+?)\s+(\d+,\d+)\u20BA[^\]]*\]/g;
+    /\[!\[Image \d+: product-thumb\]\((https?:\/\/[^)]+)\)[^\]]*## ([^\]]+?)\s+(\d+,\d+)₺[^\]]*\]/g;
 
   let match;
   while ((match = productPattern.exec(text)) !== null) {
     const imageUrl = match[1];
-    const fullName = match[2].trim();
+    const fullName = normalizeText(match[2]);
     const price = Number.parseFloat(match[3].replace(",", "."));
 
     if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
@@ -154,7 +174,7 @@ function parseSokFromJinaText(text) {
     seen.add(key);
     out.push({
       market: "Sok",
-      name: normalizeText(fullName),
+      name: fullName,
       price,
       image: imageUrl,
     });
@@ -188,9 +208,7 @@ function parseMigrosFromJinaText(text) {
       if (!line) continue;
 
       const nameMatch = line.match(/^# \[([^\]]+)\]/);
-      if (nameMatch) {
-        name = normalizeText(nameMatch[1]);
-      }
+      if (nameMatch) name = normalizeText(nameMatch[1]);
 
       if (price === null) {
         const parsed = parsePriceValue(line);
@@ -210,7 +228,10 @@ function parseMigrosFromJinaText(text) {
   }
 
   const deduped = dedupeItems(items);
-  logMigrosDebug("jina parser", { count: deduped.length, first: deduped[0] || null });
+  logMigrosDebug("jina parser", {
+    count: deduped.length,
+    first: deduped[0] || null,
+  });
   return deduped;
 }
 
@@ -263,7 +284,9 @@ async function fetchMigrosApiPage(query, page = 1) {
 
   try {
     const response = await fetch(targetUrl, {
-      headers: migrosApiHeaders(`https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`),
+      headers: migrosApiHeaders(
+        `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
+      ),
       signal: controller.signal,
     });
 
@@ -282,7 +305,10 @@ async function fetchMigrosApiPage(query, page = 1) {
     const payload = await response.json();
     const searchInfo = payload?.data?.searchInfo || {};
     const items = dedupeItems(
-      (Array.isArray(searchInfo.storeProductInfos) ? searchInfo.storeProductInfos : [])
+      (Array.isArray(searchInfo.storeProductInfos)
+        ? searchInfo.storeProductInfos
+        : []
+      )
         .map(mapMigrosApiItem)
         .filter(Boolean),
     );
@@ -349,20 +375,40 @@ async function scrapeSok(product) {
   return [];
 }
 
+function mergeUniqueItems(target, incoming, seen, limit) {
+  for (const item of incoming) {
+    const key = `${item.name.toLowerCase()}|${Number(item.price).toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    target.push(item);
+    if (target.length >= limit) break;
+  }
+}
+
 async function scrapeMigros(product) {
   const queries = migrosQueryVariants(product);
   logScrape("Migros", `Starting scrape for "${product}"`);
+  const combined = [];
+  const seen = new Set();
 
   for (const query of queries) {
     try {
       const items = await fetchMigrosApiResults(query, MIGROS_RESULT_LIMIT);
       if (items.length > 0) {
         logScrape("Migros", `API returned ${items.length} items for "${query}"`);
-        return items;
+        mergeUniqueItems(combined, items, seen, MIGROS_RESULT_LIMIT);
+        if (combined.length >= MIGROS_RESULT_LIMIT) {
+          return combined.slice(0, MIGROS_RESULT_LIMIT);
+        }
       }
     } catch (err) {
       logScrape("Migros", `API error for "${query}": ${err.message}`);
     }
+  }
+
+  if (combined.length > 0) {
+    logScrape("Migros", `Using combined API results (${combined.length}) for "${product}"`);
+    return combined.slice(0, MIGROS_RESULT_LIMIT);
   }
 
   for (const query of queries) {
@@ -377,14 +423,17 @@ async function scrapeMigros(product) {
       const items = parseMigrosFromJinaText(text);
       if (items.length > 0) {
         logScrape("Migros", `Jina returned ${items.length} items for "${query}"`);
-        return items.slice(0, MIGROS_RESULT_LIMIT);
+        mergeUniqueItems(combined, items, seen, MIGROS_RESULT_LIMIT);
+        if (combined.length >= MIGROS_RESULT_LIMIT) {
+          return combined.slice(0, MIGROS_RESULT_LIMIT);
+        }
       }
     } catch (err) {
       logScrape("Migros", `Jina error for "${query}": ${err.message}`);
     }
   }
 
-  return [];
+  return combined.slice(0, MIGROS_RESULT_LIMIT);
 }
 
 async function compareIngredients(ingredients) {
@@ -407,7 +456,8 @@ async function compareIngredients(ingredients) {
     ]);
 
     const sokItem = Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
-    const migrosItem = Array.isArray(migrosItems) && migrosItems.length > 0 ? migrosItems[0] : null;
+    const migrosItem =
+      Array.isArray(migrosItems) && migrosItems.length > 0 ? migrosItems[0] : null;
 
     const sokUnit = sokItem ? Number(sokItem.price) : null;
     const migrosUnit = migrosItem ? Number(migrosItem.price) : null;
@@ -460,7 +510,7 @@ async function searchProduct(product, market) {
     return await withTimeout(
       `searchProduct migros:${product}`,
       scrapeMigros(product),
-      MIGROS_TIMEOUT_MS,
+      Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS),
     );
   }
   return [];
@@ -475,7 +525,7 @@ async function searchMultiple(product) {
     withTimeout(
       `searchMultiple migros:${product}`,
       scrapeMigros(product),
-      MIGROS_TIMEOUT_MS,
+      Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS),
     ).catch((err) => {
       logScrape("Migros", err.message);
       return [];
