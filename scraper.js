@@ -11,6 +11,12 @@ const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
 const MIGROS_TIMEOUT_MS = Number(
   process.env.MIGROS_TIMEOUT_MS || Math.max(45000, SEARCH_TIMEOUT_MS),
 );
+const MIGROS_API_TIMEOUT_MS = Number(
+  process.env.MIGROS_API_TIMEOUT_MS || Math.min(12000, MIGROS_TIMEOUT_MS),
+);
+const MIGROS_DIRECT_TIMEOUT_MS = Number(
+  process.env.MIGROS_DIRECT_TIMEOUT_MS || Math.min(10000, MIGROS_TIMEOUT_MS),
+);
 const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || 20);
 const MIGROS_ACCEPT_LANGUAGE = String(
   process.env.MIGROS_ACCEPT_LANGUAGE || "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -384,8 +390,18 @@ async function extractMigrosItemsFromPage(page) {
       return node;
     };
 
+    const findContainerSafe = (node) => {
+      let current = node;
+      for (let i = 0; i < 8 && current; i++) {
+        const text = normalize(current.innerText || "");
+        if (text && /(?:\u20BA|TL)/i.test(text)) return current;
+        current = current.parentElement;
+      }
+      return node;
+    };
+
     links.forEach((link) => {
-      const card = findContainer(link);
+      const card = findContainerSafe(link);
       const rawText = normalize(card.innerText || "");
       if (!rawText) return;
 
@@ -483,7 +499,7 @@ async function fetchMigrosApiPage(query, page = 1) {
     `https://www.migros.com.tr/rest/search/screens/products?q=${encodeURIComponent(query)}` +
     `&page=${page}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MIGROS_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), MIGROS_API_TIMEOUT_MS);
 
   try {
     const response = await fetch(targetUrl, {
@@ -548,7 +564,7 @@ async function fetchMigrosApiResults(query, limit = MIGROS_RESULT_LIMIT) {
 async function fetchMigrosHtml(query) {
   const targetUrl = `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MIGROS_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), MIGROS_DIRECT_TIMEOUT_MS);
 
   try {
     const response = await fetch(targetUrl, {
@@ -605,6 +621,10 @@ async function scrapeSok(product) {
 
 async function scrapeMigros(product) {
   const queries = migrosQueryVariants(product);
+  logScrape(
+    "Migros",
+    `Starting scrape for "${product}" with timeout ${MIGROS_TIMEOUT_MS}ms`,
+  );
 
   for (const query of queries) {
     try {

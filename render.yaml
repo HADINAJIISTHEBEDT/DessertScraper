@@ -14,6 +14,10 @@ services:
         value: https://www.migros.com.tr/arama?q=sut
       - key: MIGROS_DEBUG
         value: 1
+      - key: MIGROS_API_TIMEOUT_MS
+        value: 12000
+      - key: MIGROS_DIRECT_TIMEOUT_MS
+        value: 10000
       - key: PUPPETEER_CACHE_DIR
         value: /opt/render/project/src/.cache/puppeteer
       - key: SEARCH_TIMEOUT_MS
