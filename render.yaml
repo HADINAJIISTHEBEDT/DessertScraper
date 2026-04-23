@@ -8,24 +8,24 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 18
-      - key: MIGROS_ACCEPT_LANGUAGE
+      - key: CARREFOUR_ACCEPT_LANGUAGE
         value: tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
-      - key: MIGROS_REFERER
-        value: https://www.migros.com.tr/arama?q=sut
-      - key: MIGROS_DEBUG
+      - key: CARREFOUR_REFERER
+        value: https://www.carrefoursa.com/search/?q=sut
+      - key: CARREFOUR_DEBUG
         value: 1
-      - key: MIGROS_API_TIMEOUT_MS
-        value: 12000
-      - key: MIGROS_DIRECT_TIMEOUT_MS
-        value: 10000
       - key: PUPPETEER_CACHE_DIR
         value: /opt/render/project/src/.cache/puppeteer
       - key: SEARCH_TIMEOUT_MS
         value: 30000
       - key: JINA_TIMEOUT_MS
         value: 25000
-      - key: MIGROS_TIMEOUT_MS
-        value: 30000
+      - key: CARREFOUR_TIMEOUT_MS
+        value: 45000
+      - key: CARREFOUR_COOKIE
+        sync: false
+      - key: CARREFOUR_SCRAPER_SERVICE
+        sync: false
       - key: FIREBASE_VAPID_PUBLIC_KEY
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT_JSON

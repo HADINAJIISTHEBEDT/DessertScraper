@@ -25,17 +25,13 @@ npm install --ignore-scripts && npx puppeteer browsers install chrome
 Start command for Render:
 node server.js
 
-Migros environment variables:
-MIGROS_ACCEPT_LANGUAGE=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
-MIGROS_REFERER=https://www.migros.com.tr/arama?q=sut
-MIGROS_DEBUG=1
-MIGROS_TIMEOUT_MS=30000
-
-Modes:
-- off: use direct Puppeteer only
-- required: use proxy only
-- fallback: proxy first, then direct Puppeteer fallback
-- mirror fallback: when enabled, tries r.jina.ai text mirror if proxy/direct fail
+Carrefour environment variables:
+CARREFOUR_ACCEPT_LANGUAGE=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
+CARREFOUR_REFERER=https://www.carrefoursa.com/search/?q=sut
+CARREFOUR_DEBUG=1
+CARREFOUR_TIMEOUT_MS=45000
+CARREFOUR_COOKIE=optional_cookie_header_or_json_export
+CARREFOUR_SCRAPER_SERVICE=optional_service_url_with_{URL}_placeholder
 
 Your app will have a URL like:
 https://dessert-cafe-manager.onrender.com

@@ -4,8 +4,8 @@ searchMultiple("sut")
   .then((result) => {
     console.log("\n=== SOK ===");
     console.log(result.sok);
-    console.log("\n=== MIGROS ===");
-    console.log(result.migros);
+    console.log("\n=== CARREFOUR ===");
+    console.log(result.carrefour);
   })
   .catch((err) => {
     console.error(err);
