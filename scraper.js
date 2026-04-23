@@ -1,4 +1,6 @@
+const fs = require("fs");
 const puppeteer = require("puppeteer-extra");
+const puppeteerCore = require("puppeteer");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 
 puppeteer.use(StealthPlugin());
@@ -33,6 +35,24 @@ function logScrape(stage, message) {
 function logMigrosDebug(message, extra) {
   if (!MIGROS_DEBUG) return;
   console.log(`[Migros][Debug] ${message}`, extra || "");
+}
+
+function resolveChromeExecutablePath() {
+  const explicit =
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.CHROME_PATH ||
+    process.env.GOOGLE_CHROME_BIN ||
+    "";
+  if (explicit && fs.existsSync(explicit)) return explicit;
+
+  try {
+    if (typeof puppeteerCore.executablePath === "function") {
+      const detected = puppeteerCore.executablePath();
+      if (detected && fs.existsSync(detected)) return detected;
+    }
+  } catch (_) {}
+
+  return null;
 }
 
 async function withTimeout(label, promise, timeoutMs = SEARCH_TIMEOUT_MS) {
@@ -600,8 +620,19 @@ async function scrapeMigros(product) {
 
   let browser;
   try {
+    const executablePath = resolveChromeExecutablePath();
+    logMigrosDebug("launch config", {
+      executablePath: executablePath || "default",
+      cacheDir:
+        process.env.PUPPETEER_CACHE_DIR ||
+        process.env.PUPPETEER_CACHE_DIRECTORY ||
+        null,
+    });
+
     browser = await puppeteer.launch({
       headless: "new",
+      executablePath: executablePath || undefined,
+      protocolTimeout: NAV_TIMEOUT_MS,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
