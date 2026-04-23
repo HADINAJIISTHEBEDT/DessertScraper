@@ -9,5 +9,5 @@ serviceAccountKey.json
 *.crt*
 *.key*
 *.png
-carrefour-local.env.bat
+migros-local.env.bat
 nul

@@ -20,18 +20,17 @@ Option 3: Heroku (Paid)
 4. Requires paid plan for 24/7
 
 Build command for Render:
-npm install --ignore-scripts && npx puppeteer browsers install chrome
+npm install
 
 Start command for Render:
 node server.js
 
-Carrefour environment variables:
-CARREFOUR_ACCEPT_LANGUAGE=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
-CARREFOUR_REFERER=https://www.carrefoursa.com/search/?q=sut
-CARREFOUR_DEBUG=1
-CARREFOUR_TIMEOUT_MS=45000
-CARREFOUR_COOKIE=optional_cookie_header_or_json_export
-CARREFOUR_SCRAPER_SERVICE=optional_service_url_with_{URL}_placeholder
+Migros environment variables:
+MIGROS_ACCEPT_LANGUAGE=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7
+MIGROS_REFERER=https://www.migros.com.tr/arama?q=sut
+MIGROS_DEBUG=1
+MIGROS_TIMEOUT_MS=20000
+MIGROS_RESULT_LIMIT=20
 
 Your app will have a URL like:
 https://dessert-cafe-manager.onrender.com
