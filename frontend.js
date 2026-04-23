@@ -56,6 +56,9 @@ const translations = {
     searchBtn: "Search", modalHint: "The scraped name will fill the ingredient name field.",
     clearResults: "Clear Results", closeBtn: "Close",
     searchingFor: "Searching Şok and Migros for", noResultsFound: "No results found", select: "Select",
+    pickChooseBoth: "Choose one item from Sok and one from Migros before saving.",
+    pickSelectedFrom: "Selected from", pickSelectionReady: "Both market selections are ready.",
+    pickSaveBoth: "Save Both Selections", pickNeedOtherMarket: "Choose one item from the other market too.",
     deleteConfirm: "Delete", enterDessertName: "Enter dessert name:",
     quantityToSearch: "Quantity", quantityUnit: "Unit", estimatedCost: "Estimated Cost",
     language: "Language", english: "English", arabic: "العربية",
@@ -431,20 +434,39 @@ window.deleteDessert = function(index) { if (!confirm(`${t("deleteConfirm")} "${
 window.addNewDessert = function() { const name = prompt(t("enterDessertName")); if (!name||!name.trim()) return; desserts.push({name:name.trim(),days:5,hours:0,minutes:0,startTime:null,finished:false,ingredients:[]}); saveLocal(); render(); renderSettings(); renderDessertSelect(); };
 
 let _pickTarget = null;
-let _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece" };
+let _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece", draftSelections: { sok: null, migros: null } };
+function currentPickSelections() { return _pickState?.draftSelections || { sok: null, migros: null }; }
 window.openPickModal = async function(dessertIndex, ingredientIndex) {
   _pickTarget = {dessertIndex, ingredientIndex};
   const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
   const unitEl = document.getElementById(`ing_unit_${dessertIndex}_${ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${dessertIndex}_${ingredientIndex}`);
+  const ing = normalizeIngredient(desserts[dessertIndex]?.ingredients?.[ingredientIndex]);
   const modal = document.getElementById("pickModal"), searchInput = document.getElementById("pickSearchInput"), qtyInput = document.getElementById("pickQuantityInput"), qtyUnit = document.getElementById("pickQuantityUnit"), resultsBox = document.getElementById("pickResults");
+  _pickState = {
+    query: "",
+    results: null,
+    quantity: Number(qtyEl?.value || "1") || 1,
+    quantityUnit: unitEl?.value || "piece",
+    draftSelections: {
+      sok: ing.marketSelections?.sok ? { ...ing.marketSelections.sok } : null,
+      migros: ing.marketSelections?.migros ? { ...ing.marketSelections.migros } : null,
+    },
+  };
   searchInput.value = (nameEl?.value||"").trim(); resultsBox.innerHTML = ""; modal.classList.remove("hidden");
   if (qtyInput) qtyInput.value = qtyEl?.value || "1";
   if (qtyUnit) qtyUnit.value = unitEl?.value || "piece";
   if (searchInput.value) await runPickSearch(searchInput.value);
 };
-window.closePickModal = function() { document.getElementById("pickModal").classList.add("hidden"); _pickTarget = null; };
-window.clearPickResults = function() { document.getElementById("pickResults").innerHTML = ""; };
+window.closePickModal = function() {
+  document.getElementById("pickModal").classList.add("hidden");
+  _pickTarget = null;
+  _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece", draftSelections: { sok: null, migros: null } };
+};
+window.clearPickResults = function() {
+  _pickState = { ..._pickState, results: null };
+  document.getElementById("pickResults").innerHTML = "";
+};
 window.pickSearchKeydown = function(e) { if (e.key === "Enter") runPickSearch(document.getElementById("pickSearchInput").value.trim()); };
 
 window.runPickSearch = async function(query) {
@@ -458,7 +480,7 @@ window.runPickSearch = async function(query) {
     const res = await fetch(`${SCRAPER_API_BASE}/search-all`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({product:query}) });
     if (!res.ok) throw new Error(`API error ${res.status}`);
     const data = await res.json();
-    _pickState = { query, results: data, quantity, quantityUnit };
+    _pickState = { ..._pickState, query, results: data, quantity, quantityUnit };
     renderPickResults(data, quantity, quantityUnit);
   } catch(err) { resultsBox.innerHTML = `<p class="pick-error">Error: ${err.message}</p>`; }
 };
@@ -466,26 +488,27 @@ window.runPickSearch = async function(query) {
 function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
   const resultsBox = document.getElementById("pickResults");
   const markets = [{key:"sok",label:"Şok",color:"#e67e22"},{key:"migros",label:"Migros",color:"#2980b9"}];
-  const ing = _pickTarget
-    ? normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex])
-    : null;
+  const selections = currentPickSelections();
+  const requiredMarkets = markets.filter(({key}) => Array.isArray(data[key]) && data[key].length > 0).map(({key}) => key);
+  const ready = requiredMarkets.length > 0 && requiredMarkets.every((market) => selections[market]?.name);
   let html = '<div class="pick-markets-container">';
+  html += `<div class="pick-selection-banner"><div class="pick-selection-title">${t("pickChooseBoth")}</div><div class="pick-selection-status">${t("pickSelectedFrom")} Sok: <strong>${escapeText(selections.sok?.name || "None")}</strong></div><div class="pick-selection-status">${t("pickSelectedFrom")} Migros: <strong>${escapeText(selections.migros?.name || "None")}</strong></div><div class="${ready ? "pick-selection-ready" : "pick-selection-pending"}">${ready ? t("pickSelectionReady") : t("pickNeedOtherMarket")}</div></div>`;
   markets.forEach(({key,label,color}) => {
     const items = data[key];
-    html += `<div class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label}</span></div><div class="pick-market-items">`;
+    html += `<div class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label} (${Array.isArray(items) ? items.length : 0})</span></div><div class="pick-market-items">`;
     if (!items||!items.length) html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
     else items.forEach(item => {
       const packageInfo = extractPackageFromName(item.name);
       const img = item.image ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">` : "<span>📦</span>";
       const estimated = estimateItemCost(item.price, quantity, quantityUnit, packageInfo);
       const packageLabel = packageInfo ? `${packageInfo.size} ${packageInfo.unit}` : "1 piece";
-      const selectedName = ing?.marketSelections?.[key]?.name || "";
+      const selectedName = selections[key]?.name || "";
       const isSelected = selectedName && selectedName === item.name;
       html += `<div class="pick-product-card ${isSelected ? "selected" : ""}"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(quantityUnit)} from ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-market="${escapeAttr(key)}" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${isSelected ? "Selected" : t("select")}</button></div>`;
     });
     html += `</div></div>`;
   });
-  html += "</div>"; resultsBox.innerHTML = html;
+  html += `</div><div class="pick-confirm-row"><button class="pick-confirm-btn" ${ready ? "" : "disabled"} onclick="confirmPickedItems()">${t("pickSaveBoth")}</button></div>`; resultsBox.innerHTML = html;
   resultsBox.querySelectorAll(".pick-select-btn").forEach(btn => {
     btn.addEventListener("click", () => applyPickedItem(btn.dataset.market, btn.dataset.name, btn.dataset.packSize, btn.dataset.packUnit));
   });
@@ -495,6 +518,24 @@ function escapeAttr(s) { return String(s).replace(/&/g,"&amp;").replace(/"/g,"&q
 function escapeText(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 window.applyPickedItem = function(market, name, packageSize, packageUnit) {
   if (!_pickTarget) return;
+  _pickState.draftSelections[market] = {
+    market,
+    name,
+    packageSize: packageSize ? Number(packageSize) : null,
+    packageUnit: packageUnit || "",
+  };
+  if (_pickState.results) {
+    renderPickResults(_pickState.results, _pickState.quantity, _pickState.quantityUnit);
+  }
+};
+
+window.confirmPickedItems = function() {
+  if (!_pickTarget || !_pickState.results) return;
+  const requiredMarkets = ["sok", "migros"].filter((market) => Array.isArray(_pickState.results[market]) && _pickState.results[market].length > 0);
+  if (!requiredMarkets.every((market) => _pickState.draftSelections[market]?.name)) {
+    alert(t("pickNeedOtherMarket"));
+    return;
+  }
   const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const unitEl = document.getElementById(`ing_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
@@ -503,23 +544,20 @@ window.applyPickedItem = function(market, name, packageSize, packageUnit) {
   const qtyInput = document.getElementById("pickQuantityInput");
   const qtyUnit = document.getElementById("pickQuantityUnit");
   const ing = normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex]);
-  if (!ing.marketSelections) ing.marketSelections = { sok: null, migros: null };
-  ing.marketSelections[market] = {
-    market,
-    name,
-    packageSize: packageSize ? Number(packageSize) : null,
-    packageUnit: packageUnit || "",
+  ing.marketSelections = {
+    sok: _pickState.draftSelections.sok ? { ..._pickState.draftSelections.sok } : null,
+    migros: _pickState.draftSelections.migros ? { ..._pickState.draftSelections.migros } : null,
   };
   desserts[_pickTarget.dessertIndex].ingredients[_pickTarget.ingredientIndex] = ing;
-  if (el && !el.value.trim()) el.value = name;
+  if (el && !el.value.trim()) el.value = _pickState.draftSelections.sok?.name || _pickState.draftSelections.migros?.name || "";
   if (qtyEl && qtyInput && qtyInput.value) qtyEl.value = qtyInput.value;
   if (unitEl && qtyUnit && qtyUnit.value) unitEl.value = qtyUnit.value;
-  if (packEl && packageSize) packEl.value = packageSize;
-  if (packUnitEl && packageUnit) packUnitEl.value = packageUnit;
+  const packSource = _pickState.draftSelections.sok || _pickState.draftSelections.migros;
+  if (packEl && packSource?.packageSize) packEl.value = packSource.packageSize;
+  if (packUnitEl && packSource?.packageUnit) packUnitEl.value = packSource.packageUnit;
   saveLocal();
-  if (_pickState.results) {
-    renderPickResults(_pickState.results, _pickState.quantity, _pickState.quantityUnit);
-  }
+  renderSettings();
+  closePickModal();
 };
 
 function renderIngredientsSettings() {
