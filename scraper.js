@@ -540,12 +540,16 @@ async function compareIngredients(ingredients) {
 
   for (const ing of ingredients) {
     const name = String(ing.name || "").trim();
+    const marketNames =
+      ing.marketNames && typeof ing.marketNames === "object" ? ing.marketNames : {};
+    const sokName = String(marketNames.sok || name).trim();
+    const migrosName = String(marketNames.migros || name).trim();
     const quantity = Number(ing.quantity || 0);
     if (!name || quantity <= 0) continue;
 
     const [sokItems, migrosItems] = await Promise.all([
-      scrapeSok(name).catch(() => []),
-      scrapeMigros(name).catch(() => []),
+      scrapeSok(sokName).catch(() => []),
+      scrapeMigros(migrosName).catch(() => []),
     ]);
 
     const sokItem = Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
@@ -568,6 +572,10 @@ async function compareIngredients(ingredients) {
     rows.push({
       ingredient: name,
       quantity,
+      marketNames: {
+        sok: sokName,
+        migros: migrosName,
+      },
       sok: { unitPrice: sokUnit, cost: sokCost },
       migros: { unitPrice: migrosUnit, cost: migrosCost },
     });
