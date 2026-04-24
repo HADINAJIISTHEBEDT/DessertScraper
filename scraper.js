@@ -3,26 +3,25 @@ const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
 const MIGROS_TIMEOUT_MS = Number(
   process.env.MIGROS_TIMEOUT_MS || Math.max(20000, SEARCH_TIMEOUT_MS),
 );
-const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || 20);
+const MARKET_RESULT_LIMIT = Number(process.env.MARKET_RESULT_LIMIT || 20);
+const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || MARKET_RESULT_LIMIT);
 const MIGROS_ACCEPT_LANGUAGE = String(
   process.env.MIGROS_ACCEPT_LANGUAGE || "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
 ).trim();
-const MIGROS_REFERER = String(
-  process.env.MIGROS_REFERER || "https://www.migros.com.tr/arama?q=sut",
-).trim();
-const MIGROS_DEBUG = String(process.env.MIGROS_DEBUG || "").trim() === "1";
-
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
+const MARKET_ORDER = ["sok", "migros", "file", "bim"];
+const MARKET_LABELS = {
+  sok: "Sok",
+  migros: "Migros",
+  file: "File",
+  bim: "BIM",
+};
+
 function logScrape(stage, message) {
   console.log(`[Scraper][${stage}] ${message}`);
-}
-
-function logMigrosDebug(message, extra) {
-  if (!MIGROS_DEBUG) return;
-  console.log(`[Migros][Debug] ${message}`, extra || "");
 }
 
 async function withTimeout(label, promise, timeoutMs = SEARCH_TIMEOUT_MS) {
@@ -48,26 +47,25 @@ function normalizeText(value) {
     .trim();
 }
 
-function toAsciiTurkish(value) {
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function transliterateTurkish(value) {
   return String(value || "")
-    .replace(/ı/g, "i")
-    .replace(/İ/g, "I")
-    .replace(/ğ/g, "g")
-    .replace(/Ğ/g, "G")
-    .replace(/ü/g, "u")
-    .replace(/Ü/g, "U")
-    .replace(/ş/g, "s")
-    .replace(/Ş/g, "S")
-    .replace(/ö/g, "o")
-    .replace(/Ö/g, "O")
-    .replace(/ç/g, "c")
-    .replace(/Ç/g, "C");
+    .normalize("NFKD")
+    .replace(/[ıİ]/g, "i")
+    .replace(/[ğĞ]/g, "g")
+    .replace(/[üÜ]/g, "u")
+    .replace(/[şŞ]/g, "s")
+    .replace(/[öÖ]/g, "o")
+    .replace(/[çÇ]/g, "c")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function improveSearchQuery(query) {
-  return String(query || "")
+  return normalizeText(String(query || ""))
     .toLowerCase()
-    .trim()
     .replace(/\bmilk\b/g, "süt")
     .replace(/\bcheese\b/g, "peynir")
     .replace(/\byogurt\b/g, "yoğurt")
@@ -76,466 +74,476 @@ function improveSearchQuery(query) {
     .replace(/\bcilek\b/g, "çilek");
 }
 
-function migrosQueryVariants(query) {
-  const raw = normalizeText(String(query || "").toLowerCase());
-  const improved = normalizeText(improveSearchQuery(query));
-  const asciiRaw = normalizeText(toAsciiTurkish(raw).toLowerCase());
-  const asciiImproved = normalizeText(toAsciiTurkish(improved).toLowerCase());
-  const variants = new Set([raw, improved, asciiRaw, asciiImproved]);
+function queryVariants(query) {
+  const base = improveSearchQuery(query);
+  const variants = new Set([base, transliterateTurkish(base)]);
 
-  if (raw.includes("süt")) variants.add(raw.replaceAll("süt", "sut"));
-  if (improved.includes("süt")) variants.add(improved.replaceAll("süt", "sut"));
-  if (raw.includes("yoğurt")) variants.add(raw.replaceAll("yoğurt", "yogurt"));
-  if (improved.includes("yoğurt")) variants.add(improved.replaceAll("yoğurt", "yogurt"));
-  if (raw.includes("çilek")) variants.add(raw.replaceAll("çilek", "cilek"));
-  if (improved.includes("çilek")) variants.add(improved.replaceAll("çilek", "cilek"));
-  if (raw.includes("kaşar")) variants.add(raw.replaceAll("kaşar", "kasar"));
-  if (improved.includes("kaşar")) variants.add(improved.replaceAll("kaşar", "kasar"));
+  if (base.includes("süt")) variants.add(base.replaceAll("süt", "sut"));
+  if (base.includes("yoğurt")) variants.add(base.replaceAll("yoğurt", "yogurt"));
+  if (base.includes("çilek")) variants.add(base.replaceAll("çilek", "cilek"));
+  if (base.includes("kaşar")) variants.add(base.replaceAll("kaşar", "kasar"));
 
   return [...variants].map(normalizeText).filter(Boolean);
 }
 
+function tokenize(text) {
+  return transliterateTurkish(normalizeText(text).toLowerCase())
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function itemMatchScore(query, itemName) {
+  const queryTokens = tokenize(query);
+  const itemTokens = tokenize(itemName);
+  if (!queryTokens.length || !itemTokens.length) return 0;
+
+  const itemSet = new Set(itemTokens);
+  let score = 0;
+  for (const token of queryTokens) {
+    if (itemSet.has(token)) score += 3;
+    else if (itemTokens.some((itemToken) => itemToken.includes(token) || token.includes(itemToken))) score += 1;
+  }
+
+  if (transliterateTurkish(itemName).includes(transliterateTurkish(query))) score += 4;
+  return score;
+}
+
+function rankItemsForQuery(query, items, limit = MARKET_RESULT_LIMIT) {
+  return dedupeItems(items)
+    .map((item) => ({ item, score: itemMatchScore(query, item.name) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => (b.score - a.score) || (a.item.price - b.item.price))
+    .slice(0, limit)
+    .map(({ item }) => item);
+}
+
 function parsePriceValue(text) {
-  if (!text) return null;
-  const str = String(text);
+  const str = String(text || "");
   const match =
     str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:₺|TL)/i) ||
     str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
     str.match(/([\d]+[.,]\d{2})/);
 
   if (!match) return null;
-
-  const parsed = Number.parseFloat(
-    String(match[1]).replace(/\./g, "").replace(",", "."),
-  );
+  const parsed = Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function dedupeItems(items) {
   const map = new Map();
-
   for (const item of Array.isArray(items) ? items : []) {
-    const name = normalizeText(item.name);
-    const price = Number(item.price);
-    const image = normalizeText(item.image);
-
-    if (!name || name.length < 2) continue;
-    if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
+    const name = normalizeText(item?.name);
+    const price = Number(item?.price);
+    const image = normalizeText(item?.image);
+    const market = normalizeText(item?.market);
+    if (!name || !Number.isFinite(price) || price <= 0 || price > 50000) continue;
 
     const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
-    if (!map.has(key)) {
-      map.set(key, { market: item.market, name, price, image });
-    } else if (!map.get(key).image && image) {
-      map.set(key, { market: item.market, name, price, image });
-    }
+    if (!map.has(key)) map.set(key, { market, name, price, image });
+    else if (!map.get(key).image && image) map.set(key, { market, name, price, image });
   }
-
   return [...map.values()];
 }
 
-async function fetchViaJinaReader(url) {
-  const jinaUrl = `https://r.jina.ai/${url}`;
+async function fetchText(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), JINA_TIMEOUT_MS);
-
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(jinaUrl, {
+    const response = await fetch(url, {
       headers: {
-        Accept: "text/plain",
         "User-Agent": CHROME_USER_AGENT,
+        Accept: "text/html,application/json,text/plain,*/*",
+        ...headers,
       },
       signal: controller.signal,
     });
 
-    if (!response.ok) throw new Error(`Jina reader HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.text();
   } finally {
     clearTimeout(timeout);
   }
 }
 
+async function fetchJson(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
+  const text = await fetchText(url, timeoutMs, headers);
+  return JSON.parse(text);
+}
+
+async function fetchViaJinaReader(url, timeoutMs = JINA_TIMEOUT_MS) {
+  return await fetchText(`https://r.jina.ai/${url}`, timeoutMs, {
+    Accept: "text/plain",
+  });
+}
+
 function parseSokFromJinaText(text) {
-  const out = [];
-  const seen = new Set();
-  const productPattern =
+  const items = [];
+  const pattern =
     /\[!\[Image \d+: product-thumb\]\((https?:\/\/[^)]+)\)[^\]]*## ([^\]]+?)\s+(\d+,\d+)₺[^\]]*\]/g;
 
   let match;
-  while ((match = productPattern.exec(text)) !== null) {
-    const imageUrl = match[1];
-    const fullName = normalizeText(match[2]);
-    const price = Number.parseFloat(match[3].replace(",", "."));
-
-    if (!Number.isFinite(price) || price <= 0 || price > 5000) continue;
-    if (fullName.length < 3) continue;
-
-    const key = `${fullName.toLowerCase()}|${price.toFixed(2)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      market: "Sok",
-      name: fullName,
-      price,
-      image: imageUrl,
+  while ((match = pattern.exec(String(text || ""))) !== null) {
+    items.push({
+      market: MARKET_LABELS.sok,
+      name: normalizeText(match[2]),
+      price: Number.parseFloat(match[3].replace(",", ".")),
+      image: normalizeText(match[1]),
     });
   }
 
-  return dedupeItems(out);
-}
-
-function parseMigrosFromJinaText(text) {
-  const normalized = String(text || "");
-  if (!normalized) return [];
-
-  const items = [];
-  const seen = new Set();
-  const lines = normalized.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const imageMatch = lines[i].match(
-      /\[!\[Image \d+: ([^\]]+?)\]\((https?:\/\/[^)]+)\)\]\((https?:\/\/www\.migros\.com\.tr\/[^)\s]+-p-[a-z0-9]+)\)/i,
-    );
-    if (!imageMatch) continue;
-
-    const fallbackName = normalizeText(imageMatch[1]);
-    const image = normalizeText(imageMatch[2]);
-
-    let name = fallbackName;
-    let price = null;
-
-    for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
-      const line = normalizeText(lines[j]);
-      if (!line) continue;
-
-      const nameMatch = line.match(/^# \[([^\]]+)\]/);
-      if (nameMatch) name = normalizeText(nameMatch[1]);
-
-      if (price === null) {
-        const parsed = parsePriceValue(line);
-        if (parsed) {
-          price = parsed;
-          break;
-        }
-      }
-    }
-
-    if (!name || !price) continue;
-
-    const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push({ market: "Migros", name, price, image });
-  }
-
-  const deduped = dedupeItems(items);
-  logMigrosDebug("jina parser", {
-    count: deduped.length,
-    first: deduped[0] || null,
-  });
-  return deduped;
+  return dedupeItems(items);
 }
 
 function migrosApiHeaders(referer) {
   return {
     Accept: "application/json, text/plain, */*",
     "Accept-Language": MIGROS_ACCEPT_LANGUAGE,
-    Referer: referer || MIGROS_REFERER,
-    "User-Agent": CHROME_USER_AGENT,
+    Referer: referer,
     "X-Requested-With": "XMLHttpRequest",
   };
 }
 
 function mapMigrosApiItem(item) {
-  const priceCandidates = [
+  const rawPrice = [
     item?.crmDiscountedSalePrice,
     item?.salePrice,
     item?.shownPrice,
     item?.regularPrice,
-  ];
-  const rawPrice = priceCandidates.find(
-    (value) => Number.isFinite(Number(value)) && Number(value) > 0,
-  );
-  const price = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) / 100 : null;
-  const image = normalizeText(
-    item?.images?.[0]?.urls?.PRODUCT_LIST ||
-      item?.images?.[0]?.urls?.PRODUCT_DETAIL ||
-      item?.images?.[0]?.urls?.PRODUCT_HD ||
-      "",
-  );
+  ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
 
-  if (!item?.name || !Number.isFinite(price) || price <= 0) {
-    return null;
-  }
+  const price = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) / 100 : null;
+  if (!item?.name || !Number.isFinite(price) || price <= 0) return null;
 
   return {
-    market: "Migros",
+    market: MARKET_LABELS.migros,
     name: normalizeText(item.name),
     price,
-    image,
+    image: normalizeText(
+      item?.images?.[0]?.urls?.PRODUCT_LIST ||
+        item?.images?.[0]?.urls?.PRODUCT_DETAIL ||
+        item?.images?.[0]?.urls?.PRODUCT_HD ||
+        "",
+    ),
   };
 }
 
 async function fetchMigrosApiPage(query, page = 1) {
-  const targetUrl =
+  const url =
     `https://www.migros.com.tr/rest/search/screens/products?q=${encodeURIComponent(query)}` +
     `&page=${page}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MIGROS_TIMEOUT_MS);
+  const referer = `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`;
+  const payload = await fetchJson(url, MIGROS_TIMEOUT_MS, migrosApiHeaders(referer));
+  const searchInfo = payload?.data?.searchInfo || {};
+  const items = dedupeItems(
+    (Array.isArray(searchInfo.storeProductInfos) ? searchInfo.storeProductInfos : [])
+      .map(mapMigrosApiItem)
+      .filter(Boolean),
+  );
 
-  try {
-    const response = await fetch(targetUrl, {
-      headers: migrosApiHeaders(
-        `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`,
-      ),
-      signal: controller.signal,
-    });
-
-    logMigrosDebug("api fetch response", {
-      query,
-      page,
-      status: response.status,
-      ok: response.ok,
-      finalUrl: response.url,
-    });
-
-    if (!response.ok) {
-      throw new Error(`migros api HTTP ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const searchInfo = payload?.data?.searchInfo || {};
-    const items = dedupeItems(
-      (Array.isArray(searchInfo.storeProductInfos)
-        ? searchInfo.storeProductInfos
-        : []
-      )
-        .map(mapMigrosApiItem)
-        .filter(Boolean),
-    );
-
-    return {
-      items,
-      pageCount: Number(searchInfo.pageCount || 1),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return {
+    items,
+    pageCount: Math.max(1, Number(searchInfo.pageCount || 1)),
+  };
 }
 
-async function fetchMigrosApiResults(query, limit = MIGROS_RESULT_LIMIT) {
-  const results = [];
-  const seen = new Set();
-  let page = 1;
-  let pageCount = 1;
-
-  while (page <= pageCount && results.length < limit) {
-    const response = await fetchMigrosApiPage(query, page);
-    pageCount = Math.max(1, response.pageCount || 1);
-
-    for (const item of response.items) {
-      const key = `${item.name.toLowerCase()}|${Number(item.price).toFixed(2)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      results.push(item);
-      if (results.length >= limit) break;
-    }
-
-    page += 1;
-  }
-
-  return results.slice(0, limit);
-}
-
-async function scrapeSok(product) {
-  const query = improveSearchQuery(product);
-  const variants = [query];
-
-  if (query.includes("sut")) variants.push(query.replace("sut", "süt"));
-  if (query.includes("cilek")) variants.push(query.replace("cilek", "çilek"));
-  if (query.includes("kasar")) variants.push(query.replace("kasar", "kaşar"));
-
-  for (const q of variants) {
-    try {
-      logScrape("Sok", `Trying Jina for query "${q}"`);
-      const url = `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(q)}`;
-      const text = await withTimeout("Sok Jina fetch", fetchViaJinaReader(url));
-      if (/attention required|cloudflare|blocked/i.test(text)) continue;
-
-      const items = parseSokFromJinaText(text);
-      if (items.length > 0) {
-        logScrape("Sok", `Found ${items.length} items for "${q}"`);
-        return items;
-      }
-    } catch (err) {
-      logScrape("Sok", `Jina error for "${q}": ${err.message}`);
-    }
-  }
-
-  logScrape("Sok", `No results for "${product}"`);
-  return [];
-}
-
-function mergeUniqueItems(target, incoming, seen, limit) {
-  for (const item of incoming) {
-    const key = `${item.name.toLowerCase()}|${Number(item.price).toFixed(2)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    target.push(item);
-    if (target.length >= limit) break;
-  }
-}
-
-async function scrapeMigros(product) {
-  const queries = migrosQueryVariants(product);
-  logScrape("Migros", `Starting scrape for "${product}"`);
+async function scrapeMigros(query) {
+  logScrape("Migros", `Starting fresh scrape for "${query}"`);
+  const variants = queryVariants(query);
   const combined = [];
   const seen = new Set();
 
-  for (const query of queries) {
+  for (const variant of variants) {
     try {
-      const items = await fetchMigrosApiResults(query, MIGROS_RESULT_LIMIT);
-      if (items.length > 0) {
-        logScrape("Migros", `API returned ${items.length} items for "${query}"`);
-        mergeUniqueItems(combined, items, seen, MIGROS_RESULT_LIMIT);
-        if (combined.length >= MIGROS_RESULT_LIMIT) {
-          return combined.slice(0, MIGROS_RESULT_LIMIT);
+      let page = 1;
+      let pageCount = 1;
+      while (page <= pageCount && combined.length < MIGROS_RESULT_LIMIT) {
+        const response = await fetchMigrosApiPage(variant, page);
+        pageCount = response.pageCount;
+        for (const item of response.items) {
+          const key = `${item.name.toLowerCase()}|${item.price.toFixed(2)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          combined.push(item);
+          if (combined.length >= MIGROS_RESULT_LIMIT) break;
         }
+        page += 1;
       }
-    } catch (err) {
-      logScrape("Migros", `API error for "${query}": ${err.message}`);
+    } catch (error) {
+      logScrape("Migros", `API error for "${variant}": ${error.message}`);
     }
   }
 
-  if (combined.length > 0) {
-    logScrape("Migros", `Using combined API results (${combined.length}) for "${product}"`);
-    return combined.slice(0, MIGROS_RESULT_LIMIT);
+  if (combined.length) {
+    return rankItemsForQuery(query, combined, MIGROS_RESULT_LIMIT);
   }
 
-  for (const query of queries) {
+  const fallback = [];
+  for (const variant of variants) {
     try {
-      logScrape("Migros", `Trying Jina for query "${query}"`);
-      const url = `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`;
       const text = await withTimeout(
-        "Migros Jina fetch",
-        fetchViaJinaReader(url),
+        `Migros Jina fetch ${variant}`,
+        fetchViaJinaReader(`https://www.migros.com.tr/arama?q=${encodeURIComponent(variant)}`),
         MIGROS_TIMEOUT_MS,
       );
-      const items = parseMigrosFromJinaText(text);
-      if (items.length > 0) {
-        logScrape("Migros", `Jina returned ${items.length} items for "${query}"`);
-        mergeUniqueItems(combined, items, seen, MIGROS_RESULT_LIMIT);
-        if (combined.length >= MIGROS_RESULT_LIMIT) {
-          return combined.slice(0, MIGROS_RESULT_LIMIT);
-        }
-      }
-    } catch (err) {
-      logScrape("Migros", `Jina error for "${query}": ${err.message}`);
+      fallback.push(...parseMigrosFromSearchText(text));
+    } catch (error) {
+      logScrape("Migros", `Jina error for "${variant}": ${error.message}`);
     }
   }
 
-  return combined.slice(0, MIGROS_RESULT_LIMIT);
+  return rankItemsForQuery(query, fallback, MIGROS_RESULT_LIMIT);
+}
+
+function parseMigrosFromSearchText(text) {
+  const items = [];
+  const lines = String(text || "").split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const imageMatch = lines[index].match(
+      /\[!\[Image \d+: ([^\]]+?)\]\((https?:\/\/[^)]+)\)\]\((https?:\/\/www\.migros\.com\.tr\/[^)\s]+)\)/i,
+    );
+    if (!imageMatch) continue;
+
+    let name = normalizeText(imageMatch[1]);
+    let price = null;
+    for (let lookAhead = index + 1; lookAhead < Math.min(index + 12, lines.length); lookAhead += 1) {
+      const line = normalizeText(lines[lookAhead]);
+      if (!line) continue;
+      const heading = line.match(/^# \[([^\]]+)\]/);
+      if (heading) name = normalizeText(heading[1]);
+      if (price === null) price = parsePriceValue(line);
+    }
+
+    if (!name || !price) continue;
+    items.push({
+      market: MARKET_LABELS.migros,
+      name,
+      price,
+      image: normalizeText(imageMatch[2]),
+    });
+  }
+
+  return dedupeItems(items);
+}
+
+async function scrapeSok(query) {
+  logScrape("Sok", `Starting fresh scrape for "${query}"`);
+  const variants = queryVariants(query);
+  const items = [];
+
+  for (const variant of variants) {
+    try {
+      const text = await withTimeout(
+        `Sok Jina fetch ${variant}`,
+        fetchViaJinaReader(`https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(variant)}`),
+      );
+      if (/attention required|cloudflare|blocked/i.test(text)) continue;
+      items.push(...parseSokFromJinaText(text));
+    } catch (error) {
+      logScrape("Sok", `Jina error for "${variant}": ${error.message}`);
+    }
+  }
+
+  return rankItemsForQuery(query, items, MARKET_RESULT_LIMIT);
+}
+
+function parseBimFromMarkdown(text) {
+  const lines = String(text || "")
+    .split("\n")
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+
+  const items = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith("## ")) continue;
+
+    const brand = normalizeText(lines[index].replace(/^## /, ""));
+    const productLine = normalizeText((lines[index + 1] || "").replace(/^## /, ""));
+    const bulletLine = normalizeText(lines[index + 2] || "");
+    const block = [brand, productLine, bulletLine, lines[index + 3] || "", lines[index + 4] || ""].join(" ");
+    const price = parsePriceValue(block);
+    if (!productLine || !price) continue;
+
+    const nameParts = [];
+    if (brand && brand.toLowerCase() !== productLine.toLowerCase()) nameParts.push(brand);
+    nameParts.push(productLine);
+    if (bulletLine.startsWith("*")) nameParts.push(bulletLine.replace(/^\*\s*•?\s*/, ""));
+
+    items.push({
+      market: MARKET_LABELS.bim,
+      name: normalizeText(nameParts.join(" ")),
+      price,
+      image: "",
+    });
+  }
+
+  return dedupeItems(items);
+}
+
+async function scrapeBim(query) {
+  logScrape("BIM", `Starting fresh scrape for "${query}"`);
+  const sources = [
+    "https://www.bim.com.tr/Categories/100/aktuel-urunler.aspx",
+    "https://www.bim.com.tr/Categories/254/aktuel_urunler.aspx",
+  ];
+
+  const items = [];
+  for (const url of sources) {
+    try {
+      const text = await withTimeout(`BIM Jina fetch ${url}`, fetchViaJinaReader(url));
+      items.push(...parseBimFromMarkdown(text));
+    } catch (error) {
+      logScrape("BIM", `Official page error: ${error.message}`);
+    }
+  }
+
+  if (items.length) return rankItemsForQuery(query, items, MARKET_RESULT_LIMIT);
+  return await searchEngineFallback(query, "bim.com.tr", MARKET_LABELS.bim);
+}
+
+function stripHtml(text) {
+  return String(text || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseDuckDuckGoResults(html, marketLabel) {
+  const items = [];
+  const resultPattern = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+
+  while ((match = resultPattern.exec(String(html || ""))) !== null) {
+    const title = stripHtml(match[2]);
+    const snippet = stripHtml(match[3]);
+    const price = parsePriceValue(snippet);
+    if (!title || !price) continue;
+    items.push({
+      market: marketLabel,
+      name: normalizeText(title.replace(/\s*[-|].*$/, "")),
+      price,
+      image: "",
+    });
+  }
+
+  return dedupeItems(items);
+}
+
+async function searchEngineFallback(query, domain, marketLabel) {
+  const variants = queryVariants(query);
+  const items = [];
+
+  for (const variant of variants) {
+    try {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`${variant} site:${domain}`)}`;
+      const html = await fetchText(url, SEARCH_TIMEOUT_MS, {
+        "Content-Type": "application/x-www-form-urlencoded",
+      });
+      items.push(...parseDuckDuckGoResults(html, marketLabel));
+    } catch (error) {
+      logScrape(marketLabel, `search fallback error: ${error.message}`);
+    }
+  }
+
+  return rankItemsForQuery(query, items, MARKET_RESULT_LIMIT);
+}
+
+async function scrapeFile(query) {
+  logScrape("File", `Starting fresh scrape for "${query}"`);
+  return await searchEngineFallback(query, "file.com.tr", MARKET_LABELS.file);
+}
+
+const MARKET_HANDLERS = {
+  sok: scrapeSok,
+  migros: scrapeMigros,
+  file: scrapeFile,
+  bim: scrapeBim,
+};
+
+async function searchProduct(product, market) {
+  const normalizedMarket = String(market || "").trim().toLowerCase();
+  const handler = MARKET_HANDLERS[normalizedMarket];
+  if (!handler) return [];
+  return await withTimeout(
+    `searchProduct ${normalizedMarket}:${product}`,
+    handler(product),
+    normalizedMarket === "migros" ? Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS) : SEARCH_TIMEOUT_MS,
+  );
+}
+
+async function searchMultiple(product) {
+  const entries = await Promise.all(
+    MARKET_ORDER.map(async (market) => {
+      const items = await searchProduct(product, market).catch((error) => {
+        logScrape(MARKET_LABELS[market], error.message);
+        return [];
+      });
+      return [market, Array.isArray(items) ? items : []];
+    }),
+  );
+
+  return Object.fromEntries(entries);
 }
 
 async function compareIngredients(ingredients) {
   const rows = [];
-  let sokTotal = 0;
-  let migrosTotal = 0;
+  const totals = Object.fromEntries(MARKET_ORDER.map((market) => [market, 0]));
 
-  for (const ing of ingredients) {
-    const name = String(ing.name || "").trim();
-    const marketNames =
-      ing.marketNames && typeof ing.marketNames === "object" ? ing.marketNames : {};
-    const sokName = String(marketNames.sok || name).trim();
-    const migrosName = String(marketNames.migros || name).trim();
-    const quantity = Number(ing.quantity || 0);
+  for (const ingredient of Array.isArray(ingredients) ? ingredients : []) {
+    const name = normalizeText(ingredient?.name);
+    const quantity = Number(ingredient?.quantity || 0);
+    const marketNames = ingredient?.marketNames && typeof ingredient.marketNames === "object"
+      ? ingredient.marketNames
+      : {};
     if (!name || quantity <= 0) continue;
 
-    const [sokItems, migrosItems] = await Promise.all([
-      scrapeSok(sokName).catch(() => []),
-      scrapeMigros(migrosName).catch(() => []),
-    ]);
+    const searches = await Promise.all(
+      MARKET_ORDER.map(async (market) => {
+        const marketQuery = normalizeText(marketNames[market] || name);
+        const result = await searchProduct(marketQuery, market).catch(() => []);
+        return [market, Array.isArray(result) && result.length ? result[0] : null, marketQuery];
+      }),
+    );
 
-    const sokItem = Array.isArray(sokItems) && sokItems.length > 0 ? sokItems[0] : null;
-    const migrosItem =
-      Array.isArray(migrosItems) && migrosItems.length > 0 ? migrosItems[0] : null;
-
-    const sokUnit = sokItem ? Number(sokItem.price) : null;
-    const migrosUnit = migrosItem ? Number(migrosItem.price) : null;
-
-    const sokCost =
-      sokUnit !== null && Number.isFinite(sokUnit) ? sokUnit * quantity : null;
-    const migrosCost =
-      migrosUnit !== null && Number.isFinite(migrosUnit) ? migrosUnit * quantity : null;
-
-    if (sokCost !== null) sokTotal += sokCost;
-    if (migrosCost !== null) migrosTotal += migrosCost;
-
-    rows.push({
+    const row = {
       ingredient: name,
       quantity,
-      marketNames: {
-        sok: sokName,
-        migros: migrosName,
-      },
-      sok: { unitPrice: sokUnit, cost: sokCost },
-      migros: { unitPrice: migrosUnit, cost: migrosCost },
-    });
+      marketNames: {},
+    };
+
+    for (const [market, item, marketQuery] of searches) {
+      const unitPrice = item ? Number(item.price) : null;
+      const cost = unitPrice !== null && Number.isFinite(unitPrice) ? unitPrice * quantity : null;
+      row.marketNames[market] = marketQuery;
+      row[market] = {
+        name: item?.name || marketQuery,
+        unitPrice,
+        cost,
+      };
+      if (cost !== null) totals[market] += cost;
+    }
+
+    rows.push(row);
   }
 
-  const totals = { sok: sokTotal, migros: migrosTotal };
-  const hasSok = rows.some((row) => row.sok.unitPrice !== null);
-  const hasMigros = rows.some((row) => row.migros.unitPrice !== null);
+  const availableTotals = MARKET_ORDER
+    .filter((market) => rows.some((row) => row[market]?.unitPrice !== null))
+    .map((market) => ({ name: MARKET_LABELS[market], total: totals[market] }));
 
   let cheapestMarket = "N/A";
   let cheapestTotal = null;
-  const markets = [];
-
-  if (hasSok) markets.push({ name: "Sok", total: sokTotal });
-  if (hasMigros) markets.push({ name: "Migros", total: migrosTotal });
-
-  if (markets.length > 0) {
-    markets.sort((a, b) => a.total - b.total);
-    cheapestMarket = markets[0].name;
-    cheapestTotal = markets[0].total;
+  if (availableTotals.length) {
+    availableTotals.sort((a, b) => a.total - b.total);
+    cheapestMarket = availableTotals[0].name;
+    cheapestTotal = availableTotals[0].total;
   }
 
   return { rows, totals, cheapestMarket, cheapestTotal };
-}
-
-async function searchProduct(product, market) {
-  if (market === "sok") {
-    return await withTimeout(`searchProduct sok:${product}`, scrapeSok(product));
-  }
-  if (market === "migros") {
-    return await withTimeout(
-      `searchProduct migros:${product}`,
-      scrapeMigros(product),
-      Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS),
-    );
-  }
-  return [];
-}
-
-async function searchMultiple(product) {
-  const [sok, migros] = await Promise.all([
-    withTimeout(`searchMultiple sok:${product}`, scrapeSok(product)).catch((err) => {
-      logScrape("Sok", err.message);
-      return [];
-    }),
-    withTimeout(
-      `searchMultiple migros:${product}`,
-      scrapeMigros(product),
-      Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS),
-    ).catch((err) => {
-      logScrape("Migros", err.message);
-      return [];
-    }),
-  ]);
-
-  return {
-    sok: Array.isArray(sok) ? sok : [],
-    migros: Array.isArray(migros) ? migros : [],
-  };
 }
 
 module.exports = {

@@ -6,6 +6,10 @@ searchMultiple("sut")
     console.log(result.sok);
     console.log("\n=== MIGROS ===");
     console.log(result.migros);
+    console.log("\n=== FILE ===");
+    console.log(result.file);
+    console.log("\n=== BIM ===");
+    console.log(result.bim);
   })
   .catch((err) => {
     console.error(err);
