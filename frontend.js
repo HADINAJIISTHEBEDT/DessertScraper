@@ -197,6 +197,19 @@ function unitLabel(unit) {
   return unit === "piece" ? t("onePiece") : unit;
 }
 
+function isAndroidAppBridgeAvailable() {
+  return typeof window !== "undefined"
+    && window.AndroidApp
+    && typeof window.AndroidApp.isAndroidApp === "function"
+    && window.AndroidApp.isAndroidApp();
+}
+
+function hasAndroidNotificationPermission() {
+  return isAndroidAppBridgeAvailable()
+    && typeof window.AndroidApp.isNotificationPermissionGranted === "function"
+    && window.AndroidApp.isNotificationPermissionGranted();
+}
+
 function translateUI() {
   const map = { appTitle:"appTitle", activeDessertsTitle:"activeDesserts", expiredDessertsTitle:"expiredDesserts",
     marketPricesTitle:"marketPrices", timerSettingsTitle:"timerSettings", ingredientsTitle:"ingredientsTitle",
@@ -821,6 +834,9 @@ let notificationsEnabled = localStorage.getItem("notif_enabled") === "true";
 
 async function showChromeNotification(title, body, tag) {
   if (!notificationsEnabled) return false;
+  if (isAndroidAppBridgeAvailable() && typeof window.AndroidApp.showNotification === "function") {
+    return Boolean(window.AndroidApp.showNotification(title, body, tag || "dessert-timer"));
+  }
   if (!("Notification" in window)) return false;
   if (Notification.permission !== "granted") return false;
 
@@ -889,6 +905,16 @@ window.toggleNotifications = async function() {
     }
   }
 };
+
+window.addEventListener("android-notification-permission", (event) => {
+  const granted = Boolean(event?.detail?.granted);
+  notificationsEnabled = granted;
+  localStorage.setItem("notif_enabled", granted ? "true" : "false");
+  initNotifications();
+  if (granted) {
+    showChromeNotification(t("notificationsEnabledTitle"), t("notificationsEnabledBody"), "notifications-enabled");
+  }
+});
 
 function initNotifications() {
   var btn = document.getElementById("notifBtn");
@@ -1104,6 +1130,22 @@ window.saveIngredient = function(di, ii) {
 window.toggleNotifications = async function() {
   const btn = document.getElementById("notifBtn");
   if (!btn) return;
+  if (isAndroidAppBridgeAvailable()) {
+    if (hasAndroidNotificationPermission()) {
+      notificationsEnabled = !notificationsEnabled;
+      localStorage.setItem("notif_enabled", notificationsEnabled ? "true" : "false");
+      initNotifications();
+      if (notificationsEnabled) {
+        showChromeNotification(t("notificationsEnabledTitle"), t("notificationsEnabledBody"), "notifications-enabled");
+      }
+      return;
+    }
+
+    if (typeof window.AndroidApp.requestNotificationPermission === "function") {
+      window.AndroidApp.requestNotificationPermission();
+    }
+    return;
+  }
   if (!("Notification" in window)) { alert(t("browserNoNotifications")); return; }
   if (notificationsEnabled) {
     desserts.forEach((_, i) => cancelTimerPush(i).catch(()=>{}));
@@ -1145,6 +1187,12 @@ window.toggleNotifications = async function() {
 function initNotifications() {
   const btn = document.getElementById("notifBtn");
   if (!btn) return;
+  if (isAndroidAppBridgeAvailable()) {
+    const enabled = notificationsEnabled && hasAndroidNotificationPermission();
+    btn.classList.toggle("active", enabled);
+    btn.title = enabled ? t("disableNotifications") : t("enableNotifications");
+    return;
+  }
   if (!("Notification" in window)) {
     btn.classList.remove("active");
     btn.title = t("browserNoNotifications");
