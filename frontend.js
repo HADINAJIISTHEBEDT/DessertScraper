@@ -1510,3 +1510,314 @@ window.openMarketLink = function(market, di, ii) {
   if (!config) return;
   window.open(config.url(query), "_blank");
 };
+
+const MARKET_DEFS_V2 = [
+  { key: "sok", label: "Sok", color: "#f97316", url: (query) => `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}` },
+  { key: "migros", label: "Migros", color: "#0f766e", url: (query) => `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}` },
+];
+
+function marketKeys() {
+  return MARKET_DEFS_V2.map((market) => market.key);
+}
+
+function emptyMarketSelections() {
+  return Object.fromEntries(marketKeys().map((key) => [key, null]));
+}
+
+function marketLabel(market) {
+  const match = MARKET_DEFS_V2.find((entry) => entry.key === String(market || "").toLowerCase());
+  return match ? match.label : (market || t("unavailable"));
+}
+
+function normalizeIngredient(ing) {
+  const marketSelections = ing?.marketSelections && typeof ing.marketSelections === "object"
+    ? ing.marketSelections
+    : {};
+  const normalizedSelections = emptyMarketSelections();
+
+  marketKeys().forEach((market) => {
+    if (!marketSelections[market]) return;
+    normalizedSelections[market] = {
+      market,
+      name: String(marketSelections[market].name || ""),
+      packageSize: Number.isFinite(Number(marketSelections[market].packageSize))
+        ? Number(marketSelections[market].packageSize)
+        : null,
+      packageUnit: String(marketSelections[market].packageUnit || ""),
+    };
+  });
+
+  return {
+    name: String(ing?.name || ""),
+    quantity: Number.isFinite(Number(ing?.quantity)) ? Number(ing.quantity) : 1,
+    unit: String(ing?.unit || "piece"),
+    description: String(ing?.description || ""),
+    packageSize: Number.isFinite(Number(ing?.packageSize)) ? Number(ing.packageSize) : 1,
+    packageUnit: String(ing?.packageUnit || "piece"),
+    marketSelections: normalizedSelections,
+  };
+}
+
+function currentPickSelections() {
+  return _pickState?.draftSelections || emptyMarketSelections();
+}
+
+window.openPickModal = async function(dessertIndex, ingredientIndex) {
+  _pickTarget = { dessertIndex, ingredientIndex };
+  const nameEl = document.getElementById(`ing_name_${dessertIndex}_${ingredientIndex}`);
+  const descEl = document.getElementById(`ing_desc_${dessertIndex}_${ingredientIndex}`);
+  const unitEl = document.getElementById(`ing_unit_${dessertIndex}_${ingredientIndex}`);
+  const qtyEl = document.getElementById(`ing_qty_${dessertIndex}_${ingredientIndex}`);
+  const ing = normalizeIngredient(desserts[dessertIndex]?.ingredients?.[ingredientIndex]);
+  const modal = document.getElementById("pickModal");
+  const searchInput = document.getElementById("pickSearchInput");
+  const qtyInput = document.getElementById("pickQuantityInput");
+  const qtyUnit = document.getElementById("pickQuantityUnit");
+  const resultsBox = document.getElementById("pickResults");
+  const searchQuery = buildIngredientSearchQuery(nameEl?.value, descEl?.value) || buildIngredientSearchQuery(ing.name, ing.description);
+
+  const draftSelections = emptyMarketSelections();
+  marketKeys().forEach((market) => {
+    draftSelections[market] = ing.marketSelections?.[market] ? { ...ing.marketSelections[market] } : null;
+  });
+
+  _pickState = {
+    query: searchQuery,
+    results: null,
+    quantity: Number(qtyEl?.value || "1") || 1,
+    quantityUnit: unitEl?.value || "piece",
+    draftSelections,
+  };
+
+  searchInput.value = searchQuery;
+  resultsBox.innerHTML = "";
+  modal.classList.remove("hidden");
+  if (qtyInput) qtyInput.value = qtyEl?.value || "1";
+  if (qtyUnit) qtyUnit.value = unitEl?.value || "piece";
+  if (searchInput.value) await runPickSearch(searchInput.value);
+};
+
+window.closePickModal = function() {
+  document.getElementById("pickModal").classList.add("hidden");
+  _pickTarget = null;
+  _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece", draftSelections: emptyMarketSelections() };
+};
+
+window.applyPickedItem = function(market, name, packageSize, packageUnit) {
+  if (!_pickTarget) return;
+  _pickState.draftSelections[market] = {
+    market,
+    name,
+    packageSize: packageSize ? Number(packageSize) : null,
+    packageUnit: packageUnit || "",
+  };
+  if (_pickState.results) {
+    renderPickResults(_pickState.results, _pickState.quantity, _pickState.quantityUnit);
+  }
+};
+
+window.confirmPickedItems = function() {
+  if (!_pickTarget || !_pickState.results) return;
+  const requiredMarkets = marketKeys().filter((market) => Array.isArray(_pickState.results[market]) && _pickState.results[market].length > 0);
+  if (!requiredMarkets.every((market) => _pickState.draftSelections[market]?.name)) {
+    alert(t("pickNeedOtherMarket"));
+    return;
+  }
+
+  const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const descEl = document.getElementById(`ing_desc_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const unitEl = document.getElementById(`ing_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const packEl = document.getElementById(`ing_pack_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const packUnitEl = document.getElementById(`ing_pack_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const qtyInput = document.getElementById("pickQuantityInput");
+  const qtyUnit = document.getElementById("pickQuantityUnit");
+  const ing = normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex]);
+  const firstPicked = marketKeys().map((market) => _pickState.draftSelections[market]?.name).find(Boolean) || "";
+  const nextName = (el?.value || "").trim() || _pickState.query || firstPicked;
+  const nextDescription = (descEl?.value || "").trim();
+  const nextQuantity = Math.max(0.01, Number(qtyInput?.value || qtyEl?.value || ing.quantity || 1));
+  const nextUnit = qtyUnit?.value || unitEl?.value || ing.unit || "piece";
+  const packSource = marketKeys().map((market) => _pickState.draftSelections[market]).find(Boolean);
+  const nextPackageSize = Number(packSource?.packageSize || packEl?.value || ing.packageSize || 1) || 1;
+  const nextPackageUnit = packSource?.packageUnit || packUnitEl?.value || ing.packageUnit || "piece";
+
+  const marketSelections = emptyMarketSelections();
+  marketKeys().forEach((market) => {
+    marketSelections[market] = _pickState.draftSelections[market] ? { ..._pickState.draftSelections[market] } : null;
+  });
+
+  desserts[_pickTarget.dessertIndex].ingredients[_pickTarget.ingredientIndex] = {
+    ...ing,
+    name: nextName,
+    description: nextDescription,
+    quantity: nextQuantity,
+    unit: nextUnit,
+    packageSize: nextPackageSize,
+    packageUnit: nextPackageUnit,
+    marketSelections,
+  };
+
+  if (el) el.value = nextName;
+  if (descEl) descEl.value = nextDescription;
+  if (qtyEl) qtyEl.value = String(nextQuantity);
+  if (unitEl) unitEl.value = nextUnit;
+  if (packEl) packEl.value = String(nextPackageSize);
+  if (packUnitEl) packUnitEl.value = nextPackageUnit;
+
+  saveLocal();
+  renderSettings();
+  renderDessertSelect();
+  closePickModal();
+};
+
+function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
+  const resultsBox = document.getElementById("pickResults");
+  const selections = currentPickSelections();
+  const markets = MARKET_DEFS_V2.filter(({ key }) => Array.isArray(data[key]));
+  const requiredMarkets = markets.filter(({ key }) => data[key].length > 0).map(({ key }) => key);
+  const ready = requiredMarkets.length > 0 && requiredMarkets.every((market) => selections[market]?.name);
+
+  let html = '<div class="pick-markets-container">';
+  html += `<div class="pick-selection-banner"><div class="pick-selection-title">${t("pickChooseBoth")}</div>`;
+  MARKET_DEFS_V2.forEach(({ key }) => {
+    html += `<div class="pick-selection-status">${t("pickSelectedFrom")} ${marketLabel(key)}: <strong>${escapeText(selections[key]?.name || t("none"))}</strong></div>`;
+  });
+  html += `<div class="${ready ? "pick-selection-ready" : "pick-selection-pending"}">${ready ? t("pickSelectionReady") : t("pickNeedOtherMarket")}</div></div>`;
+
+  markets.forEach(({ key, label, color }) => {
+    const items = data[key];
+    html += `<section class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label} (${Array.isArray(items) ? items.length : 0})</span></div><div class="pick-market-items">`;
+    if (!items || !items.length) {
+      html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
+    } else {
+      items.forEach((item) => {
+        const packageInfo = extractPackageFromName(item.name);
+        const img = item.image
+          ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`
+          : "<span>📦</span>";
+        const estimated = estimateItemCost(item.price, quantity, quantityUnit, packageInfo);
+        const packageLabel = packageInfo ? `${packageInfo.size} ${packageInfo.unit}` : t("onePiece");
+        const selectedName = selections[key]?.name || "";
+        const isSelected = selectedName && selectedName === item.name;
+        html += `<article class="pick-product-card ${isSelected ? "selected" : ""}"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(unitLabel(quantityUnit))} ${t("fromLabel")} ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-market="${escapeAttr(key)}" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${isSelected ? t("selectedState") : t("select")}</button></article>`;
+      });
+    }
+    html += `</div></section>`;
+  });
+
+  html += `</div><div class="pick-confirm-row"><button class="pick-confirm-btn" ${ready ? "" : "disabled"} onclick="confirmPickedItems()">${t("pickSaveBoth")}</button></div>`;
+  resultsBox.innerHTML = html;
+  resultsBox.querySelectorAll(".pick-select-btn").forEach((btn) => {
+    btn.addEventListener("click", () => applyPickedItem(btn.dataset.market, btn.dataset.name, btn.dataset.packSize, btn.dataset.packUnit));
+  });
+}
+
+function renderIngredientsSettings() {
+  const panel = document.getElementById("ingredientsSettings");
+  panel.innerHTML = "";
+  desserts.forEach((dessert, di) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "panel";
+    wrapper.innerHTML = `<div class="ing-header"><h3>${dessert.name}</h3><div class="ing-header-btns"><button onclick="addIngredient(${di})">${t("addIngredientBtn")}</button></div></div><div id="ingredients_${di}" class="ingredients-list"></div>`;
+    panel.appendChild(wrapper);
+    const list = wrapper.querySelector(`#ingredients_${di}`);
+    const ingredients = Array.isArray(dessert.ingredients) ? dessert.ingredients : [];
+    if (!ingredients.length) {
+      const empty = document.createElement("div");
+      empty.className = "no-ingredients";
+      empty.textContent = t("noIngredientsYet");
+      list.appendChild(empty);
+      return;
+    }
+
+    ingredients.forEach((ingredient, ii) => {
+      const normalized = normalizeIngredient(ingredient);
+      const summary = MARKET_DEFS_V2
+        .map(({ key }) => normalized.marketSelections?.[key]?.name
+          ? `<span>${marketLabel(key)}: ${escapeText(normalized.marketSelections[key].name)}</span>`
+          : "")
+        .filter(Boolean)
+        .join("");
+      const pickedSummary = summary ? `<div class="picked-market-summary">${summary}</div>` : "";
+      const marketButtons = MARKET_DEFS_V2
+        .map(({ key, label }) => `<button onclick="openMarketLink('${key}',${di},${ii})">Open ${label}</button>`)
+        .join("");
+
+      const row = document.createElement("div");
+      row.className = "ingredient-row";
+      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${normalized.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${normalized.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${normalized.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(normalized.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${normalized.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(normalized.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button>${marketButtons}<button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>${pickedSummary}`;
+      list.appendChild(row);
+    });
+  });
+}
+
+window.findCheapestForSelectedDessert = async function() {
+  if (!SCRAPER_API_BASE) await detectServerPort();
+  const select = document.getElementById("dessertSelect");
+  const resultBox = document.getElementById("marketResult");
+  const idx = Number(select?.value ?? -1);
+  const dessert = desserts[idx];
+  if (!dessert) return (resultBox.innerHTML = `<p>${t("selectDessert")}</p>`);
+
+  const ingredients = (dessert.ingredients || []).map((raw) => {
+    const ing = normalizeIngredient(raw);
+    const baseName = [ing.name, ing.description].filter(Boolean).join(" ").trim();
+    return {
+      name: baseName,
+      marketNames: {
+        sok: ing.marketSelections?.sok?.name || baseName,
+        migros: ing.marketSelections?.migros?.name || baseName,
+      },
+      quantity: calculateEffectiveQuantity(ing.quantity, ing.unit, ing.packageSize, ing.packageUnit),
+      displayQuantity: `${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})`,
+    };
+  }).filter((ing) => ing.name && ing.quantity > 0);
+
+  if (!ingredients.length) {
+    resultBox.innerHTML = `<p>${t("addIngredientsFirst")}</p>`;
+    return;
+  }
+
+  resultBox.innerHTML = `<p>${t("searching")}</p>`;
+  try {
+    const res = await fetch(`${SCRAPER_API_BASE}/compare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ingredients }),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    renderMarketResult(await res.json());
+  } catch (err) {
+    resultBox.innerHTML = `<p>${t("marketServiceError")}: ${err.message}</p>`;
+  }
+};
+
+function renderMarketResult(data) {
+  const resultBox = document.getElementById("marketResult");
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  const totals = data.totals || {};
+  const cheapest = data.cheapestMarket || "N/A";
+  const cheapestTotal = Number(data.cheapestTotal || 0);
+
+  let html = `<div class="market-table-wrap"><table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>${marketLabel("sok")} ${t("chosenItem")}</th><th>${marketLabel("sok")} ${t("unit")}</th><th>${marketLabel("sok")} ${t("cost")}</th><th>${marketLabel("migros")} ${t("chosenItem")}</th><th>${marketLabel("migros")} ${t("unit")}</th><th>${marketLabel("migros")} ${t("cost")}</th></tr></thead><tbody>`;
+
+  rows.forEach((row) => {
+    html += `<tr><td>${escapeText(row.ingredient)}</td><td>${escapeText(row.quantity)}</td><td>${escapeText(row.sok?.name || row.marketNames?.sok || t("unavailable"))}</td><td>${formatTryPrice(row.sok?.unitPrice)}</td><td>${formatTryPrice(row.sok?.cost)}</td><td>${escapeText(row.migros?.name || row.marketNames?.migros || t("unavailable"))}</td><td>${formatTryPrice(row.migros?.unitPrice)}</td><td>${formatTryPrice(row.migros?.cost)}</td></tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+  html += `<div class="market-totals"><p><strong>Total ${marketLabel("sok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>Total ${marketLabel("migros")}:</strong> ${formatTryPrice(totals.migros)}</p></div>`;
+  html += `<p class="best-market">${t("cheapestMarket")}: ${escapeText(marketLabel(cheapest))} (${formatTryPrice(cheapestTotal)})</p>`;
+  resultBox.innerHTML = html;
+}
+
+window.openMarketLink = function(market, di, ii) {
+  const nameEl = document.getElementById(`ing_name_${di}_${ii}`);
+  const descEl = document.getElementById(`ing_desc_${di}_${ii}`);
+  const query = buildIngredientSearchQuery(nameEl?.value, descEl?.value);
+  if (!query) { alert(t("writeIngredientFirst")); return; }
+  const config = MARKET_DEFS_V2.find((entry) => entry.key === market);
+  if (!config) return;
+  window.open(config.url(query), "_blank");
+};

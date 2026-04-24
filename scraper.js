@@ -1,13 +1,21 @@
 const SEARCH_TIMEOUT_MS = Number(process.env.SEARCH_TIMEOUT_MS || 25000);
 const JINA_TIMEOUT_MS = Number(process.env.JINA_TIMEOUT_MS || 20000);
+const MIGROS_TIMEOUT_MS = Number(
+  process.env.MIGROS_TIMEOUT_MS || Math.max(20000, SEARCH_TIMEOUT_MS),
+);
 const MARKET_RESULT_LIMIT = Number(process.env.MARKET_RESULT_LIMIT || 20);
+const MIGROS_RESULT_LIMIT = Number(process.env.MIGROS_RESULT_LIMIT || MARKET_RESULT_LIMIT);
+const MIGROS_ACCEPT_LANGUAGE = String(
+  process.env.MIGROS_ACCEPT_LANGUAGE || "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+).trim();
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
-const MARKET_ORDER = ["sok"];
+const MARKET_ORDER = ["sok", "migros"];
 const MARKET_LABELS = {
   sok: "Sok",
+  migros: "Migros",
 };
 
 function logScrape(stage, message) {
@@ -119,6 +127,18 @@ function rankItemsForQuery(query, items, limit = MARKET_RESULT_LIMIT) {
     .map(({ item }) => item);
 }
 
+function parsePriceValue(text) {
+  const str = String(text || "");
+  const match =
+    str.match(/([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})\s*(?:₺|TL)/i) ||
+    str.match(/(?:₺|TL)\s*([\d]{1,3}(?:[.,]\d{3})*[.,]\d{1,2})/i) ||
+    str.match(/([\d]+[.,]\d{2})/);
+
+  if (!match) return null;
+  const parsed = Number.parseFloat(String(match[1]).replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 async function fetchText(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -126,7 +146,7 @@ async function fetchText(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
     const response = await fetch(url, {
       headers: {
         "User-Agent": CHROME_USER_AGENT,
-        Accept: "text/plain,*/*",
+        Accept: "text/html,application/json,text/plain,*/*",
         ...headers,
       },
       signal: controller.signal,
@@ -137,6 +157,10 @@ async function fetchText(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchJson(url, timeoutMs = SEARCH_TIMEOUT_MS, headers = {}) {
+  return JSON.parse(await fetchText(url, timeoutMs, headers));
 }
 
 async function fetchViaJinaReader(url, timeoutMs = JINA_TIMEOUT_MS) {
@@ -157,6 +181,90 @@ function parseSokFromJinaText(text) {
       name: normalizeText(match[2]),
       price: Number.parseFloat(match[3].replace(",", ".")),
       image: normalizeText(match[1]),
+    });
+  }
+
+  return dedupeItems(items);
+}
+
+function migrosApiHeaders(referer) {
+  return {
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": MIGROS_ACCEPT_LANGUAGE,
+    Referer: referer,
+    "X-Requested-With": "XMLHttpRequest",
+  };
+}
+
+function mapMigrosApiItem(item) {
+  const rawPrice = [
+    item?.crmDiscountedSalePrice,
+    item?.salePrice,
+    item?.shownPrice,
+    item?.regularPrice,
+  ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+
+  const price = Number.isFinite(Number(rawPrice)) ? Number(rawPrice) / 100 : null;
+  if (!item?.name || !Number.isFinite(price) || price <= 0) return null;
+
+  return {
+    market: MARKET_LABELS.migros,
+    name: normalizeText(item.name),
+    price,
+    image: normalizeText(
+      item?.images?.[0]?.urls?.PRODUCT_LIST ||
+        item?.images?.[0]?.urls?.PRODUCT_DETAIL ||
+        item?.images?.[0]?.urls?.PRODUCT_HD ||
+        "",
+    ),
+  };
+}
+
+async function fetchMigrosApiPage(query, page = 1) {
+  const url =
+    `https://www.migros.com.tr/rest/search/screens/products?q=${encodeURIComponent(query)}` +
+    `&page=${page}`;
+  const referer = `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}`;
+  const payload = await fetchJson(url, MIGROS_TIMEOUT_MS, migrosApiHeaders(referer));
+  const searchInfo = payload?.data?.searchInfo || {};
+  const items = dedupeItems(
+    (Array.isArray(searchInfo.storeProductInfos) ? searchInfo.storeProductInfos : [])
+      .map(mapMigrosApiItem)
+      .filter(Boolean),
+  );
+
+  return {
+    items,
+    pageCount: Math.max(1, Number(searchInfo.pageCount || 1)),
+  };
+}
+
+function parseMigrosFromSearchText(text) {
+  const items = [];
+  const lines = String(text || "").split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const imageMatch = lines[index].match(
+      /\[!\[Image \d+: ([^\]]+?)\]\((https?:\/\/[^)]+)\)\]\((https?:\/\/www\.migros\.com\.tr\/[^)\s]+)\)/i,
+    );
+    if (!imageMatch) continue;
+
+    let name = normalizeText(imageMatch[1]);
+    let price = null;
+    for (let lookAhead = index + 1; lookAhead < Math.min(index + 12, lines.length); lookAhead += 1) {
+      const line = normalizeText(lines[lookAhead]);
+      if (!line) continue;
+      const heading = line.match(/^# \[([^\]]+)\]/);
+      if (heading) name = normalizeText(heading[1]);
+      if (price === null) price = parsePriceValue(line);
+    }
+
+    if (!name || !price) continue;
+    items.push({
+      market: MARKET_LABELS.migros,
+      name,
+      price,
+      image: normalizeText(imageMatch[2]),
     });
   }
 
@@ -184,8 +292,57 @@ async function scrapeSok(query) {
   return rankItemsForQuery(query, items, MARKET_RESULT_LIMIT);
 }
 
+async function scrapeMigros(query) {
+  logScrape("Migros", `Starting scrape for "${query}"`);
+  const variants = queryVariants(query);
+  const combined = [];
+  const seen = new Set();
+
+  for (const variant of variants) {
+    try {
+      let page = 1;
+      let pageCount = 1;
+      while (page <= pageCount && combined.length < MIGROS_RESULT_LIMIT) {
+        const response = await fetchMigrosApiPage(variant, page);
+        pageCount = response.pageCount;
+        for (const item of response.items) {
+          const key = `${item.name.toLowerCase()}|${item.price.toFixed(2)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          combined.push(item);
+          if (combined.length >= MIGROS_RESULT_LIMIT) break;
+        }
+        page += 1;
+      }
+    } catch (error) {
+      logScrape("Migros", `API error for "${variant}": ${error.message}`);
+    }
+  }
+
+  if (combined.length) {
+    return rankItemsForQuery(query, combined, MIGROS_RESULT_LIMIT);
+  }
+
+  const fallback = [];
+  for (const variant of variants) {
+    try {
+      const text = await withTimeout(
+        `Migros Jina fetch ${variant}`,
+        fetchViaJinaReader(`https://www.migros.com.tr/arama?q=${encodeURIComponent(variant)}`),
+        MIGROS_TIMEOUT_MS,
+      );
+      fallback.push(...parseMigrosFromSearchText(text));
+    } catch (error) {
+      logScrape("Migros", `Jina error for "${variant}": ${error.message}`);
+    }
+  }
+
+  return rankItemsForQuery(query, fallback, MIGROS_RESULT_LIMIT);
+}
+
 const MARKET_HANDLERS = {
   sok: scrapeSok,
+  migros: scrapeMigros,
 };
 
 async function searchProduct(product, market) {
@@ -195,7 +352,7 @@ async function searchProduct(product, market) {
   return await withTimeout(
     `searchProduct ${normalizedMarket}:${product}`,
     handler(product),
-    SEARCH_TIMEOUT_MS,
+    normalizedMarket === "migros" ? Math.max(MIGROS_TIMEOUT_MS, SEARCH_TIMEOUT_MS) : SEARCH_TIMEOUT_MS,
   );
 }
 
@@ -215,7 +372,7 @@ async function searchMultiple(product) {
 
 async function compareIngredients(ingredients) {
   const rows = [];
-  const totals = { sok: 0 };
+  const totals = { sok: 0, migros: 0 };
 
   for (const ingredient of Array.isArray(ingredients) ? ingredients : []) {
     const name = normalizeText(ingredient?.name);
@@ -225,32 +382,53 @@ async function compareIngredients(ingredients) {
       : {};
     if (!name || quantity <= 0) continue;
 
-    const marketQuery = normalizeText(marketNames.sok || name);
-    const result = await searchProduct(marketQuery, "sok").catch(() => []);
-    const item = Array.isArray(result) && result.length ? result[0] : null;
-    const unitPrice = item ? Number(item.price) : null;
-    const cost = unitPrice !== null && Number.isFinite(unitPrice) ? unitPrice * quantity : null;
-    if (cost !== null) totals.sok += cost;
+    const sokQuery = normalizeText(marketNames.sok || name);
+    const migrosQuery = normalizeText(marketNames.migros || name);
+    const [sokResult, migrosResult] = await Promise.all([
+      searchProduct(sokQuery, "sok").catch(() => []),
+      searchProduct(migrosQuery, "migros").catch(() => []),
+    ]);
+
+    const sokItem = Array.isArray(sokResult) && sokResult.length ? sokResult[0] : null;
+    const migrosItem = Array.isArray(migrosResult) && migrosResult.length ? migrosResult[0] : null;
+    const sokUnitPrice = sokItem ? Number(sokItem.price) : null;
+    const migrosUnitPrice = migrosItem ? Number(migrosItem.price) : null;
+    const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * quantity : null;
+    const migrosCost = migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * quantity : null;
+
+    if (sokCost !== null) totals.sok += sokCost;
+    if (migrosCost !== null) totals.migros += migrosCost;
 
     rows.push({
       ingredient: name,
       quantity,
-      marketNames: { sok: marketQuery },
+      marketNames: { sok: sokQuery, migros: migrosQuery },
       sok: {
-        name: item?.name || marketQuery,
-        unitPrice,
-        cost,
+        name: sokItem?.name || sokQuery,
+        unitPrice: sokUnitPrice,
+        cost: sokCost,
+      },
+      migros: {
+        name: migrosItem?.name || migrosQuery,
+        unitPrice: migrosUnitPrice,
+        cost: migrosCost,
       },
     });
   }
 
-  const hasSok = rows.some((row) => row.sok?.unitPrice !== null);
-  return {
-    rows,
-    totals,
-    cheapestMarket: hasSok ? "Sok" : "N/A",
-    cheapestTotal: hasSok ? totals.sok : null,
-  };
+  const markets = [];
+  if (rows.some((row) => row.sok?.unitPrice !== null)) markets.push({ name: "Sok", total: totals.sok });
+  if (rows.some((row) => row.migros?.unitPrice !== null)) markets.push({ name: "Migros", total: totals.migros });
+
+  let cheapestMarket = "N/A";
+  let cheapestTotal = null;
+  if (markets.length) {
+    markets.sort((a, b) => a.total - b.total);
+    cheapestMarket = markets[0].name;
+    cheapestTotal = markets[0].total;
+  }
+
+  return { rows, totals, cheapestMarket, cheapestTotal };
 }
 
 module.exports = {
