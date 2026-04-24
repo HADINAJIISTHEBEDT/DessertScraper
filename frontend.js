@@ -546,6 +546,7 @@ window.confirmPickedItems = function() {
     return;
   }
   const el = document.getElementById(`ing_name_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
+  const descEl = document.getElementById(`ing_desc_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const qtyEl = document.getElementById(`ing_qty_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const unitEl = document.getElementById(`ing_unit_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
   const packEl = document.getElementById(`ing_pack_${_pickTarget.dessertIndex}_${_pickTarget.ingredientIndex}`);
@@ -553,19 +554,37 @@ window.confirmPickedItems = function() {
   const qtyInput = document.getElementById("pickQuantityInput");
   const qtyUnit = document.getElementById("pickQuantityUnit");
   const ing = normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex]);
-  ing.marketSelections = {
+  const selectedName = _pickState.draftSelections.sok?.name || _pickState.draftSelections.migros?.name || "";
+  const nextName = (el?.value || "").trim() || _pickState.query || selectedName;
+  const nextDescription = (descEl?.value || "").trim();
+  const nextQuantity = Math.max(0.01, Number(qtyInput?.value || qtyEl?.value || ing.quantity || 1));
+  const nextUnit = qtyUnit?.value || unitEl?.value || ing.unit || "piece";
+  const packSource = _pickState.draftSelections.sok || _pickState.draftSelections.migros;
+  const nextPackageSize = Number(packSource?.packageSize || packEl?.value || ing.packageSize || 1) || 1;
+  const nextPackageUnit = packSource?.packageUnit || packUnitEl?.value || ing.packageUnit || "piece";
+  const nextIngredient = {
+    ...ing,
+    name: nextName,
+    description: nextDescription,
+    quantity: nextQuantity,
+    unit: nextUnit,
+    packageSize: nextPackageSize,
+    packageUnit: nextPackageUnit,
+    marketSelections: {
     sok: _pickState.draftSelections.sok ? { ..._pickState.draftSelections.sok } : null,
     migros: _pickState.draftSelections.migros ? { ..._pickState.draftSelections.migros } : null,
+    },
   };
-  desserts[_pickTarget.dessertIndex].ingredients[_pickTarget.ingredientIndex] = ing;
-  if (el && !el.value.trim()) el.value = _pickState.draftSelections.sok?.name || _pickState.draftSelections.migros?.name || "";
-  if (qtyEl && qtyInput && qtyInput.value) qtyEl.value = qtyInput.value;
-  if (unitEl && qtyUnit && qtyUnit.value) unitEl.value = qtyUnit.value;
-  const packSource = _pickState.draftSelections.sok || _pickState.draftSelections.migros;
-  if (packEl && packSource?.packageSize) packEl.value = packSource.packageSize;
-  if (packUnitEl && packSource?.packageUnit) packUnitEl.value = packSource.packageUnit;
+  desserts[_pickTarget.dessertIndex].ingredients[_pickTarget.ingredientIndex] = nextIngredient;
+  if (el) el.value = nextName;
+  if (descEl) descEl.value = nextDescription;
+  if (qtyEl) qtyEl.value = String(nextQuantity);
+  if (unitEl) unitEl.value = nextUnit;
+  if (packEl) packEl.value = String(nextPackageSize);
+  if (packUnitEl) packUnitEl.value = nextPackageUnit;
   saveLocal();
   renderSettings();
+  renderDessertSelect();
   closePickModal();
 };
 

@@ -14,3 +14,5 @@ nul
 android-app/.gradle/
 android-app/build/
 android-app/local.properties
+android-app/.idea/
+android-app/app/build/
