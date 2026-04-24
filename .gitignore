@@ -11,3 +11,6 @@ serviceAccountKey.json
 *.png
 migros-local.env.bat
 nul
+android-app/.gradle/
+android-app/build/
+android-app/local.properties
