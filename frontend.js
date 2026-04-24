@@ -1209,9 +1209,6 @@ function initNotifications() {
 
 const MARKET_DEFS = [
   { key: "sok", label: "Sok", color: "#e67e22", url: (query) => `https://www.sokmarket.com.tr/arama?q=${encodeURIComponent(query)}` },
-  { key: "migros", label: "Migros", color: "#2980b9", url: (query) => `https://www.migros.com.tr/arama?q=${encodeURIComponent(query)}` },
-  { key: "file", label: "File", color: "#16a085", url: () => "https://www.file.com.tr/icerik/8/file-online-satis/1000" },
-  { key: "bim", label: "BIM", color: "#c0392b", url: () => "https://www.bim.com.tr/Categories/100/aktuel-urunler.aspx" },
 ];
 
 function marketKeys() {
@@ -1316,8 +1313,7 @@ window.applyPickedItem = function(market, name, packageSize, packageUnit) {
 
 window.confirmPickedItems = function() {
   if (!_pickTarget || !_pickState.results) return;
-  const requiredMarkets = marketKeys().filter((market) => Array.isArray(_pickState.results[market]) && _pickState.results[market].length > 0);
-  if (!requiredMarkets.every((market) => _pickState.draftSelections[market]?.name)) {
+  if (Array.isArray(_pickState.results.sok) && _pickState.results.sok.length > 0 && !_pickState.draftSelections.sok?.name) {
     alert(t("pickNeedOtherMarket"));
     return;
   }
@@ -1331,12 +1327,12 @@ window.confirmPickedItems = function() {
   const qtyInput = document.getElementById("pickQuantityInput");
   const qtyUnit = document.getElementById("pickQuantityUnit");
   const ing = normalizeIngredient(desserts[_pickTarget.dessertIndex]?.ingredients?.[_pickTarget.ingredientIndex]);
-  const firstPicked = marketKeys().map((market) => _pickState.draftSelections[market]?.name).find(Boolean) || "";
+  const firstPicked = _pickState.draftSelections.sok?.name || "";
   const nextName = (el?.value || "").trim() || _pickState.query || firstPicked;
   const nextDescription = (descEl?.value || "").trim();
   const nextQuantity = Math.max(0.01, Number(qtyInput?.value || qtyEl?.value || ing.quantity || 1));
   const nextUnit = qtyUnit?.value || unitEl?.value || ing.unit || "piece";
-  const packSource = marketKeys().map((market) => _pickState.draftSelections[market]).find(Boolean);
+  const packSource = _pickState.draftSelections.sok;
   const nextPackageSize = Number(packSource?.packageSize || packEl?.value || ing.packageSize || 1) || 1;
   const nextPackageUnit = packSource?.packageUnit || packUnitEl?.value || ing.packageUnit || "piece";
 
@@ -1374,15 +1370,14 @@ function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
   const resultsBox = document.getElementById("pickResults");
   const selections = currentPickSelections();
   const markets = MARKET_DEFS.filter(({ key }) => Array.isArray(data[key]));
-  const requiredMarkets = markets.filter(({ key }) => data[key].length > 0).map(({ key }) => key);
-  const ready = requiredMarkets.length > 0 && requiredMarkets.every((market) => selections[market]?.name);
+  const ready = !Array.isArray(data.sok) || data.sok.length === 0 || Boolean(selections.sok?.name);
 
   let html = '<div class="pick-markets-container">';
-  html += `<div class="pick-selection-banner"><div class="pick-selection-title">${t("pickChooseBoth")}</div>`;
+  html += `<div class="pick-selection-banner"><div class="pick-selection-title">${t("pickItemFromMarket")}</div>`;
   MARKET_DEFS.forEach(({ key }) => {
     html += `<div class="pick-selection-status">${t("pickSelectedFrom")} ${marketLabel(key)}: <strong>${escapeText(selections[key]?.name || t("none"))}</strong></div>`;
   });
-  html += `<div class="${ready ? "pick-selection-ready" : "pick-selection-pending"}">${ready ? t("pickSelectionReady") : t("pickNeedOtherMarket")}</div></div>`;
+  html += `</div>`;
 
   markets.forEach(({ key, label, color }) => {
     const items = data[key];
@@ -1405,7 +1400,7 @@ function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
     html += `</div></div>`;
   });
 
-  html += `</div><div class="pick-confirm-row"><button class="pick-confirm-btn" ${ready ? "" : "disabled"} onclick="confirmPickedItems()">${t("pickSaveBoth")}</button></div>`;
+  html += `</div><div class="pick-confirm-row"><button class="pick-confirm-btn" ${ready ? "" : "disabled"} onclick="confirmPickedItems()">${t("saveBtn")}</button></div>`;
   resultsBox.innerHTML = html;
   resultsBox.querySelectorAll(".pick-select-btn").forEach((btn) => {
     btn.addEventListener("click", () => applyPickedItem(btn.dataset.market, btn.dataset.name, btn.dataset.packSize, btn.dataset.packUnit));
@@ -1439,13 +1434,9 @@ function renderIngredientsSettings() {
         .filter(Boolean)
         .join("");
       const pickedSummary = summary ? `<div class="picked-market-summary">${summary}</div>` : "";
-      const marketButtons = MARKET_DEFS
-        .map(({ key, label }) => `<button onclick="openMarketLink('${key}',${di},${ii})">Open ${label}</button>`)
-        .join("");
-
       const row = document.createElement("div");
       row.className = "ingredient-row";
-      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${normalized.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${normalized.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${normalized.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(normalized.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${normalized.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(normalized.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button>${marketButtons}<button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>${pickedSummary}`;
+      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${normalized.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${normalized.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${normalized.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(normalized.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${normalized.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(normalized.packageUnit)}</select><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button><button onclick="openMarketLink('sok',${di},${ii})">Open Sok</button><button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>${pickedSummary}`;
       list.appendChild(row);
     });
   });
@@ -1462,13 +1453,11 @@ window.findCheapestForSelectedDessert = async function() {
   const ingredients = (dessert.ingredients || []).map((raw) => {
     const ing = normalizeIngredient(raw);
     const baseName = [ing.name, ing.description].filter(Boolean).join(" ").trim();
-    const marketNames = {};
-    marketKeys().forEach((market) => {
-      marketNames[market] = ing.marketSelections?.[market]?.name || baseName;
-    });
     return {
       name: baseName,
-      marketNames,
+      marketNames: {
+        sok: ing.marketSelections?.sok?.name || baseName,
+      },
       quantity: calculateEffectiveQuantity(ing.quantity, ing.unit, ing.packageSize, ing.packageUnit),
       displayQuantity: `${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})`,
     };
@@ -1500,24 +1489,14 @@ function renderMarketResult(data) {
   const cheapest = data.cheapestMarket || "N/A";
   const cheapestTotal = Number(data.cheapestTotal || 0);
 
-  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th>`;
-  MARKET_DEFS.forEach(({ key }) => {
-    html += `<th>${marketLabel(key)} ${t("chosenItem")}</th><th>${marketLabel(key)} ${t("unit")}</th><th>${marketLabel(key)} ${t("cost")}</th>`;
-  });
-  html += `</tr></thead><tbody>`;
+  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>${marketLabel("sok")} ${t("chosenItem")}</th><th>${marketLabel("sok")} ${t("unit")}</th><th>${marketLabel("sok")} ${t("cost")}</th></tr></thead><tbody>`;
 
   rows.forEach((row) => {
-    html += `<tr><td>${escapeText(row.ingredient)}</td><td>${escapeText(row.quantity)}</td>`;
-    MARKET_DEFS.forEach(({ key }) => {
-      html += `<td>${escapeText(row[key]?.name || row.marketNames?.[key] || t("unavailable"))}</td><td>${formatTryPrice(row[key]?.unitPrice)}</td><td>${formatTryPrice(row[key]?.cost)}</td>`;
-    });
-    html += `</tr>`;
+    html += `<tr><td>${escapeText(row.ingredient)}</td><td>${escapeText(row.quantity)}</td><td>${escapeText(row.sok?.name || row.marketNames?.sok || t("unavailable"))}</td><td>${formatTryPrice(row.sok?.unitPrice)}</td><td>${formatTryPrice(row.sok?.cost)}</td></tr>`;
   });
 
   html += `</tbody></table>`;
-  MARKET_DEFS.forEach(({ key }) => {
-    html += `<p><strong>Total ${marketLabel(key)}:</strong> ${formatTryPrice(totals[key])}</p>`;
-  });
+  html += `<p><strong>Total ${marketLabel("sok")}:</strong> ${formatTryPrice(totals.sok)}</p>`;
   html += `<p class="best-market">${t("cheapestMarket")}: ${escapeText(marketLabel(cheapest))} (${formatTryPrice(cheapestTotal)})</p>`;
   resultBox.innerHTML = html;
 }
