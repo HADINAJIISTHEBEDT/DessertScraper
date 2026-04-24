@@ -61,6 +61,21 @@ const translations = {
     pickSaveBoth: "Save Both Selections", pickNeedOtherMarket: "Choose one item from the other market too.",
     deleteConfirm: "Delete", enterDessertName: "Enter dessert name:",
     quantityToSearch: "Quantity", quantityUnit: "Unit", estimatedCost: "Estimated Cost",
+    sokLabel: "Sok", migrosLabel: "Migros", chosenItem: "Chosen Item",
+    selectedState: "Selected", none: "None", onePiece: "1 piece", fromLabel: "from",
+    unavailable: "Unavailable", checkingConnection: "Checking connection...",
+    loadingStartServer: "Open http://localhost:5050 after starting server",
+    startServerFirst: "Start server first!", runStartBat: "Run start.bat",
+    connected: "Connected!", portLabel: "Port", serverNotRunning: "Server not running - Run start.bat",
+    serverNotFound: "Server not found", reopenSettings: "Reopen Settings tab.",
+    errorPrefix: "Error", browserNoNotifications: "Browser does not support notifications",
+    notificationsBlocked: "Notifications blocked. Click the lock icon in the address bar to allow them.",
+    enableNotifications: "Enable Notifications", disableNotifications: "Disable Notifications",
+    notificationsEnabledTitle: "Notifications Enabled!", notificationsEnabledBody: "You will receive alerts when dessert timers finish.",
+    pushUnavailableNow: "Push notifications are not available right now.",
+    pushNotConfigured: "Push notifications are not configured on this server",
+    pushUnsupportedDevice: "Push notifications are not supported on this device",
+    pushFailedToken: "Failed to get FCM token",
     language: "Language", english: "English", arabic: "العربية",
   },
   ar: {
@@ -97,7 +112,90 @@ const translations = {
   },
 };
 
-function t(key) { return translations[currentLang][key] || translations["en"][key] || key; }
+const extraTranslations = {
+  en: {
+    sokLabel: "Sok",
+    migrosLabel: "Migros",
+    chosenItem: "Chosen Item",
+    selectedState: "Selected",
+    none: "None",
+    onePiece: "1 piece",
+    fromLabel: "from",
+    unavailable: "Unavailable",
+    checkingConnection: "Checking connection...",
+    loadingStartServer: "Open http://localhost:5050 after starting server",
+    startServerFirst: "Start server first!",
+    runStartBat: "Run start.bat",
+    connected: "Connected!",
+    portLabel: "Port",
+    serverNotRunning: "Server not running - Run start.bat",
+    serverNotFound: "Server not found",
+    reopenSettings: "Reopen Settings tab.",
+    errorPrefix: "Error",
+    browserNoNotifications: "Browser does not support notifications",
+    notificationsBlocked: "Notifications blocked. Click the lock icon in the address bar to allow them.",
+    enableNotifications: "Enable Notifications",
+    disableNotifications: "Disable Notifications",
+    notificationsEnabledTitle: "Notifications Enabled!",
+    notificationsEnabledBody: "You will receive alerts when dessert timers finish.",
+    pushUnavailableNow: "Push notifications are not available right now.",
+    pushNotConfigured: "Push notifications are not configured on this server",
+    pushUnsupportedDevice: "Push notifications are not supported on this device",
+    pushFailedToken: "Failed to get FCM token",
+    arabic: "Arabic",
+  },
+  ar: {
+    sokLabel: "\u0634\u0648\u0643",
+    migrosLabel: "\u0645\u064a\u063a\u0631\u0648\u0633",
+    chosenItem: "\u0627\u0644\u0639\u0646\u0635\u0631 \u0627\u0644\u0645\u062e\u062a\u0627\u0631",
+    selectedState: "\u0645\u062d\u062f\u062f",
+    none: "\u0644\u0627 \u064a\u0648\u062c\u062f",
+    onePiece: "\u0642\u0637\u0639\u0629 \u0648\u0627\u062d\u062f\u0629",
+    fromLabel: "\u0645\u0646",
+    unavailable: "\u063a\u064a\u0631 \u0645\u062a\u0627\u062d",
+    checkingConnection: "\u062c\u0627\u0631\u064a \u0641\u062d\u0635 \u0627\u0644\u0627\u062a\u0635\u0627\u0644...",
+    loadingStartServer: "\u0627\u0641\u062a\u062d http://localhost:5050 \u0628\u0639\u062f \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0633\u064a\u0631\u0641\u0631",
+    startServerFirst: "\u0634\u063a\u0644 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0623\u0648\u0644\u0627\u064b!",
+    runStartBat: "Run start.bat",
+    connected: "\u062a\u0645 \u0627\u0644\u0627\u062a\u0635\u0627\u0644!",
+    portLabel: "\u0627\u0644\u0645\u0646\u0641\u0630",
+    serverNotRunning: "\u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0644\u0627 \u064a\u0639\u0645\u0644 - Run start.bat",
+    serverNotFound: "\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0627\u0644\u0633\u064a\u0631\u0641\u0631",
+    reopenSettings: "\u0623\u0639\u062f \u0641\u062a\u062d \u062a\u0628\u0648\u064a\u0628 \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a.",
+    errorPrefix: "\u062e\u0637\u0623",
+    browserNoNotifications: "\u0627\u0644\u0645\u062a\u0635\u0641\u062d \u0644\u0627 \u064a\u062f\u0639\u0645 \u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062a",
+    notificationsBlocked: "\u062a\u0645 \u062d\u0638\u0631 \u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062a. \u0627\u0636\u063a\u0637 \u0639\u0644\u0649 \u0631\u0645\u0632 \u0627\u0644\u0642\u0641\u0644 \u0641\u064a \u0634\u0631\u064a\u0637 \u0627\u0644\u0639\u0646\u0648\u0627\u0646 \u0644\u0644\u0633\u0645\u0627\u062d \u0628\u0647\u0627.",
+    enableNotifications: "\u062a\u0641\u0639\u064a\u0644 \u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062a",
+    disableNotifications: "\u0625\u064a\u0642\u0627\u0641 \u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062a",
+    notificationsEnabledTitle: "\u062a\u0645 \u062a\u0641\u0639\u064a\u0644 \u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062a!",
+    notificationsEnabledBody: "\u0633\u062a\u0635\u0644\u0643 \u062a\u0646\u0628\u064a\u0647\u0627\u062a \u0639\u0646\u062f \u0627\u0646\u062a\u0647\u0627\u0621 \u0645\u0624\u0642\u062a \u0627\u0644\u062d\u0644\u0648\u0649.",
+    pushUnavailableNow: "\u0625\u0634\u0639\u0627\u0631\u0627\u062a \u0627\u0644\u062f\u0641\u0639 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629 \u0627\u0644\u0622\u0646.",
+    pushNotConfigured: "\u0625\u0634\u0639\u0627\u0631\u0627\u062a \u0627\u0644\u062f\u0641\u0639 \u063a\u064a\u0631 \u0645\u0647\u064a\u0623\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0633\u064a\u0631\u0641\u0631",
+    pushUnsupportedDevice: "\u0625\u0634\u0639\u0627\u0631\u0627\u062a \u0627\u0644\u062f\u0641\u0639 \u063a\u064a\u0631 \u0645\u062f\u0639\u0648\u0645\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u062c\u0647\u0627\u0632",
+    pushFailedToken: "\u0641\u0634\u0644 \u0641\u064a \u0627\u0644\u062d\u0635\u0648\u0644 \u0639\u0644\u0649 \u0631\u0645\u0632 FCM",
+    arabic: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+  },
+};
+
+function t(key) {
+  return extraTranslations[currentLang]?.[key]
+    || translations[currentLang]?.[key]
+    || extraTranslations.en[key]
+    || translations.en[key]
+    || key;
+}
+
+function marketLabel(market) {
+  const value = String(market || "").toLowerCase();
+  if (value === "sok") return t("sokLabel");
+  if (value === "migros") return t("migrosLabel");
+  if (value === "n/a") return t("unavailable");
+  return market || t("unavailable");
+}
+
+function unitLabel(unit) {
+  return unit === "piece" ? t("onePiece") : unit;
+}
 
 function translateUI() {
   const map = { appTitle:"appTitle", activeDessertsTitle:"activeDesserts", expiredDessertsTitle:"expiredDesserts",
@@ -151,12 +249,12 @@ async function detectServerPort() {
   const hostname = window.location.hostname;
   const ls = document.getElementById("loadingStatus"), lt = document.getElementById("loadingText"), rc = document.getElementById("retryCounter");
   if (window.location.protocol === "file:") {
-    if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = 'Open <a href="http://localhost:5050" style="color:#c89b6d">http://localhost:5050</a> after starting server'; }
-    if (lt) lt.textContent = "Start server first!";
-    if (rc) rc.textContent = "Run start.bat";
+    if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = `Open <a href="http://localhost:5050" style="color:#c89b6d">http://localhost:5050</a> ${t("fromLabel")} ${t("startServerFirst").replace("!", "").toLowerCase()}`; }
+    if (lt) lt.textContent = t("startServerFirst");
+    if (rc) rc.textContent = t("runStartBat");
     return false;
   }
-  if (ls) { ls.className = "loading-status connecting"; ls.textContent = "Checking connection..."; }
+  if (ls) { ls.className = "loading-status connecting"; ls.textContent = t("checkingConnection"); }
   const isCloud = hostname.includes("netlify") || hostname.includes("onrender") || (window.location.protocol === "https:" && hostname !== "localhost" && hostname !== "127.0.0.1");
   if (isCloud) { SCRAPER_API_BASE = window.location.origin; serverFound = true; return true; }
   const isNet = hostname !== "localhost" && hostname !== "127.0.0.1";
@@ -166,14 +264,14 @@ async function detectServerPort() {
     }
   }
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    try { const r = await fetch(`${window.location.origin}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = window.location.origin; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent="Connected!";} return true; } } catch(_) {}
+    try { const r = await fetch(`${window.location.origin}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = window.location.origin; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent=t("connected");} return true; } } catch(_) {}
     for (const port of PORTS_TO_TRY) {
-      try { const r = await fetch(`${window.location.protocol}//localhost:${port}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = `${window.location.protocol}//localhost:${port}`; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent=`Port ${port}`;} return true; } } catch(_) {}
+      try { const r = await fetch(`${window.location.protocol}//localhost:${port}/health`, { signal: AbortSignal.timeout(2000) }); if (r.ok) { SCRAPER_API_BASE = `${window.location.protocol}//localhost:${port}`; serverFound = true; if(ls){ls.className="loading-status connected";ls.textContent=`${t("portLabel")} ${port}`;} return true; } } catch(_) {}
     }
   }
   retryCount++;
-  if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = "Server not running - Run <b>start.bat</b>"; }
-  if (lt) lt.textContent = "Server not found";
+  if (ls) { ls.className = "loading-status waiting"; ls.innerHTML = `${t("serverNotRunning").replace("start.bat", "<b>start.bat</b>")}`; }
+  if (lt) lt.textContent = t("serverNotFound");
   return false;
 }
 
@@ -207,14 +305,14 @@ async function getPushPublicKey() {
 async function ensurePushAvailability() {
   const status = await getPushPublicKey();
   if (!status.supported || !status.publicKey) {
-    throw new Error(status.reason || "Push notifications are not configured on this server");
+    throw new Error(status.reason || t("pushNotConfigured"));
   }
   return status;
 }
 
 async function ensurePushSubscription() {
   if (!("serviceWorker" in navigator)) {
-    throw new Error("Push notifications are not supported on this device");
+    throw new Error(t("pushUnsupportedDevice"));
   }
 
   const push = await ensurePushAvailability();
@@ -234,7 +332,7 @@ async function ensurePushSubscription() {
   });
 
   if (!pushToken) {
-    throw new Error("Failed to get FCM token");
+    throw new Error(t("pushFailedToken"));
   }
 
   return pushToken;
@@ -301,7 +399,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.documentElement.dir = currentLang === "ar" ? "rtl" : "ltr";
   document.documentElement.lang = currentLang;
   const lt = document.getElementById("loadingText");
-  if (lt) lt.textContent = currentLang === "ar" ? "جاري الاتصال..." : "Connecting...";
+  if (lt) lt.textContent = t("checkingConnection");
   const connected = await detectServerPort();
   if (!connected || !serverFound) return;
   loadLocal(); renderLanguageSwitcher(); translateUI();
@@ -806,5 +904,257 @@ function initNotifications() {
   } else {
     btn.classList.remove("active");
     btn.title = "Enable Notifications";
+  }
+}
+
+function detectServerMessageHtml() {
+  return `Open <a href="http://localhost:5050" style="color:#c89b6d">http://localhost:5050</a> ${t("fromLabel")} ${t("runStartBat")}`;
+}
+
+async function detectServerPort() {
+  const hostname = window.location.hostname;
+  const ls = document.getElementById("loadingStatus");
+  const lt = document.getElementById("loadingText");
+  const rc = document.getElementById("retryCounter");
+
+  if (window.location.protocol === "file:") {
+    if (ls) {
+      ls.className = "loading-status waiting";
+      ls.innerHTML = detectServerMessageHtml();
+    }
+    if (lt) lt.textContent = t("startServerFirst");
+    if (rc) rc.textContent = t("runStartBat");
+    return false;
+  }
+
+  if (ls) {
+    ls.className = "loading-status connecting";
+    ls.textContent = t("checkingConnection");
+  }
+
+  const isCloud = hostname.includes("netlify")
+    || hostname.includes("onrender")
+    || (window.location.protocol === "https:" && hostname !== "localhost" && hostname !== "127.0.0.1");
+  if (isCloud) {
+    SCRAPER_API_BASE = window.location.origin;
+    serverFound = true;
+    return true;
+  }
+
+  const isNet = hostname !== "localhost" && hostname !== "127.0.0.1";
+  if (isNet) {
+    for (const port of PORTS_TO_TRY) {
+      try {
+        const r = await fetch(`${window.location.protocol}//${hostname}:${port}/health`, { signal: AbortSignal.timeout(2000) });
+        if (r.ok) {
+          SCRAPER_API_BASE = `${window.location.protocol}//${hostname}:${port}`;
+          serverFound = true;
+          return true;
+        }
+      } catch (_) {}
+    }
+  }
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    try {
+      const r = await fetch(`${window.location.origin}/health`, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) {
+        SCRAPER_API_BASE = window.location.origin;
+        serverFound = true;
+        if (ls) {
+          ls.className = "loading-status connected";
+          ls.textContent = t("connected");
+        }
+        return true;
+      }
+    } catch (_) {}
+
+    for (const port of PORTS_TO_TRY) {
+      try {
+        const r = await fetch(`${window.location.protocol}//localhost:${port}/health`, { signal: AbortSignal.timeout(2000) });
+        if (r.ok) {
+          SCRAPER_API_BASE = `${window.location.protocol}//localhost:${port}`;
+          serverFound = true;
+          if (ls) {
+            ls.className = "loading-status connected";
+            ls.textContent = `${t("portLabel")} ${port}`;
+          }
+          return true;
+        }
+      } catch (_) {}
+    }
+  }
+
+  retryCount++;
+  if (ls) {
+    ls.className = "loading-status waiting";
+    ls.innerHTML = t("serverNotRunning").replace("start.bat", "<b>start.bat</b>");
+  }
+  if (lt) lt.textContent = t("serverNotFound");
+  return false;
+}
+
+window.runPickSearch = async function(query) {
+  if (!query) return;
+  if (!SCRAPER_API_BASE) await detectServerPort();
+  const quantity = Math.max(0.01, Number(document.getElementById("pickQuantityInput")?.value || "1"));
+  const quantityUnit = document.getElementById("pickQuantityUnit")?.value || "piece";
+  const resultsBox = document.getElementById("pickResults");
+  resultsBox.innerHTML = `<p class="pick-loading">🔍 ${t("searchingFor")} "<strong>${query}</strong>"...</p>`;
+  try {
+    const res = await fetch(`${SCRAPER_API_BASE}/search-all`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({product:query}) });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    _pickState = { ..._pickState, query, results: data, quantity, quantityUnit };
+    renderPickResults(data, quantity, quantityUnit);
+  } catch(err) {
+    resultsBox.innerHTML = `<p class="pick-error">${t("errorPrefix")}: ${err.message}</p>`;
+  }
+};
+
+function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
+  const resultsBox = document.getElementById("pickResults");
+  const markets = [
+    { key: "sok", label: marketLabel("sok"), color: "#e67e22" },
+    { key: "migros", label: marketLabel("migros"), color: "#2980b9" },
+  ];
+  const selections = currentPickSelections();
+  const requiredMarkets = markets
+    .filter(({ key }) => Array.isArray(data[key]) && data[key].length > 0)
+    .map(({ key }) => key);
+  const ready = requiredMarkets.length > 0 && requiredMarkets.every((market) => selections[market]?.name);
+
+  let html = '<div class="pick-markets-container">';
+  html += `<div class="pick-selection-banner"><div class="pick-selection-title">${t("pickChooseBoth")}</div><div class="pick-selection-status">${t("pickSelectedFrom")} ${marketLabel("sok")}: <strong>${escapeText(selections.sok?.name || t("none"))}</strong></div><div class="pick-selection-status">${t("pickSelectedFrom")} ${marketLabel("migros")}: <strong>${escapeText(selections.migros?.name || t("none"))}</strong></div><div class="${ready ? "pick-selection-ready" : "pick-selection-pending"}">${ready ? t("pickSelectionReady") : t("pickNeedOtherMarket")}</div></div>`;
+
+  markets.forEach(({ key, label, color }) => {
+    const items = data[key];
+    html += `<div class="pick-market-section"><div class="pick-market-header" style="background:${color}"><span>${label} (${Array.isArray(items) ? items.length : 0})</span></div><div class="pick-market-items">`;
+    if (!items || !items.length) {
+      html += `<div class="pick-no-result">${t("noResultsFound")}</div>`;
+    } else {
+      items.forEach((item) => {
+        const packageInfo = extractPackageFromName(item.name);
+        const img = item.image
+          ? `<img src="${item.image}" alt="" onerror="this.parentElement.innerHTML='<span>📦</span>'">`
+          : "<span>📦</span>";
+        const estimated = estimateItemCost(item.price, quantity, quantityUnit, packageInfo);
+        const packageLabel = packageInfo ? `${packageInfo.size} ${packageInfo.unit}` : t("onePiece");
+        const selectedName = selections[key]?.name || "";
+        const isSelected = selectedName && selectedName === item.name;
+        html += `<div class="pick-product-card ${isSelected ? "selected" : ""}"><div class="pick-product-img">${img}</div><div class="pick-product-info"><div class="pick-product-name">${escapeText(item.name)}</div><div class="pick-product-price">${formatTryPrice(item.price)}</div><div class="pick-product-total">${t("estimatedCost")} (${quantity} ${escapeText(unitLabel(quantityUnit))} ${t("fromLabel")} ${escapeText(packageLabel)}): ${formatTryPrice(estimated)}</div></div><button class="pick-select-btn" data-market="${escapeAttr(key)}" data-name="${escapeAttr(item.name)}" data-pack-size="${escapeAttr(packageInfo?.size || "")}" data-pack-unit="${escapeAttr(packageInfo?.unit || "")}">${isSelected ? t("selectedState") : t("select")}</button></div>`;
+      });
+    }
+    html += `</div></div>`;
+  });
+
+  html += `</div><div class="pick-confirm-row"><button class="pick-confirm-btn" ${ready ? "" : "disabled"} onclick="confirmPickedItems()">${t("pickSaveBoth")}</button></div>`;
+  resultsBox.innerHTML = html;
+  resultsBox.querySelectorAll(".pick-select-btn").forEach((btn) => {
+    btn.addEventListener("click", () => applyPickedItem(btn.dataset.market, btn.dataset.name, btn.dataset.packSize, btn.dataset.packUnit));
+  });
+}
+
+function renderMarketResult(data) {
+  const resultBox = document.getElementById("marketResult");
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  const totals = data.totals || {};
+  const cheapest = data.cheapestMarket || "N/A";
+  const cheapestTotal = Number(data.cheapestTotal || 0);
+
+  let html = `<table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>${marketLabel("sok")} ${t("chosenItem")}</th><th>${marketLabel("sok")} ${t("unit")}</th><th>${marketLabel("sok")} ${t("cost")}</th><th>${marketLabel("migros")} ${t("chosenItem")}</th><th>${marketLabel("migros")} ${t("unit")}</th><th>${marketLabel("migros")} ${t("cost")}</th></tr></thead><tbody>`;
+  rows.forEach((r) => {
+    html += `<tr><td>${escapeText(r.ingredient)}</td><td>${escapeText(r.quantity)}</td><td>${escapeText(r.sok?.name || r.marketNames?.sok || t("unavailable"))}</td><td>${formatTryPrice(r.sok?.unitPrice)}</td><td>${formatTryPrice(r.sok?.cost)}</td><td>${escapeText(r.migros?.name || r.marketNames?.migros || t("unavailable"))}</td><td>${formatTryPrice(r.migros?.unitPrice)}</td><td>${formatTryPrice(r.migros?.cost)}</td></tr>`;
+  });
+  html += `</tbody></table><p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>${t("totalMigros")}:</strong> ${formatTryPrice(totals.migros)}</p><p class="best-market">${t("cheapestMarket")}: ${marketLabel(cheapest)} (${formatTryPrice(cheapestTotal)})</p>`;
+  resultBox.innerHTML = html;
+}
+
+function renderUnitOptions(sel) {
+  return ["g", "kg", "ml", "l", "piece"]
+    .map((u) => `<option value="${u}" ${u===sel?"selected":""}>${escapeText(unitLabel(u))}</option>`)
+    .join("");
+}
+
+window.saveIngredient = function(di, ii) {
+  const nameEl = document.getElementById(`ing_name_${di}_${ii}`);
+  const descEl = document.getElementById(`ing_desc_${di}_${ii}`);
+  const qtyEl = document.getElementById(`ing_qty_${di}_${ii}`);
+  const unitEl = document.getElementById(`ing_unit_${di}_${ii}`);
+  const packEl = document.getElementById(`ing_pack_${di}_${ii}`);
+  const packUnitEl = document.getElementById(`ing_pack_unit_${di}_${ii}`);
+  if (!nameEl || !qtyEl || !unitEl || !packEl || !packUnitEl) { alert(t("reopenSettings")); return; }
+  const name = (nameEl.value||"").trim();
+  const description = (descEl?.value||"").trim();
+  const quantity = parseFloat(qtyEl.value||"0");
+  const unit = unitEl.value||"piece";
+  const packageSize = parseFloat(packEl.value||"0");
+  const packageUnit = packUnitEl.value||"piece";
+  if (!name) return alert(t("ingredientNameRequired"));
+  if (!Number.isFinite(quantity)||quantity<=0) return alert(t("quantityMustBeGreater"));
+  if (!Number.isFinite(packageSize)||packageSize<=0) return alert(t("packageSizeMustBeGreater"));
+  const existing = normalizeIngredient(desserts[di].ingredients[ii]);
+  desserts[di].ingredients[ii] = {name,description,quantity,unit,packageSize,packageUnit,marketSelections:existing.marketSelections};
+  saveLocal();
+  alert(t("ingredientSaved"));
+  renderSettings();
+  renderDessertSelect();
+};
+
+window.toggleNotifications = async function() {
+  const btn = document.getElementById("notifBtn");
+  if (!btn) return;
+  if (!("Notification" in window)) { alert(t("browserNoNotifications")); return; }
+  if (notificationsEnabled) {
+    desserts.forEach((_, i) => cancelTimerPush(i).catch(()=>{}));
+    notificationsEnabled = false;
+    localStorage.setItem("notif_enabled", "false");
+    btn.classList.remove("active");
+    btn.title = t("enableNotifications");
+    return;
+  }
+  if (Notification.permission === "denied") {
+    alert(t("notificationsBlocked"));
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  if (permission === "granted") {
+    try {
+      await ensurePushSubscription();
+      notificationsEnabled = true;
+      localStorage.setItem("notif_enabled", "true");
+      btn.classList.add("active");
+      btn.title = t("disableNotifications");
+      await fetch(`${SCRAPER_API_BASE}/push-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: pushToken, url: window.location.href }),
+      });
+      desserts.forEach((_, i) => syncTimerPush(i).catch(()=>{}));
+      showChromeNotification(t("notificationsEnabledTitle"), t("notificationsEnabledBody"), "notifications-enabled");
+    } catch (err) {
+      notificationsEnabled = false;
+      localStorage.setItem("notif_enabled", "false");
+      btn.classList.remove("active");
+      btn.title = t("enableNotifications");
+      alert(err.message || t("pushUnavailableNow"));
+    }
+  }
+};
+
+function initNotifications() {
+  const btn = document.getElementById("notifBtn");
+  if (!btn) return;
+  if (!("Notification" in window)) {
+    btn.classList.remove("active");
+    btn.title = t("browserNoNotifications");
+    return;
+  }
+  if (notificationsEnabled && Notification.permission === "granted") {
+    btn.classList.add("active");
+    btn.title = t("disableNotifications");
+  } else {
+    btn.classList.remove("active");
+    btn.title = t("enableNotifications");
   }
 }

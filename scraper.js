@@ -477,8 +477,16 @@ async function compareIngredients(ingredients) {
         sok: sokName,
         migros: migrosName,
       },
-      sok: { unitPrice: sokUnit, cost: sokCost },
-      migros: { unitPrice: migrosUnit, cost: migrosCost },
+      sok: {
+        name: sokItem?.name || sokName,
+        unitPrice: sokUnit,
+        cost: sokCost,
+      },
+      migros: {
+        name: migrosItem?.name || migrosName,
+        unitPrice: migrosUnit,
+        cost: migrosCost,
+      },
     });
   }
 
