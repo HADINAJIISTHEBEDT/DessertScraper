@@ -8,7 +8,8 @@
 body {
     background: linear-gradient(135deg, #f5e6d3, #fdf7f0);
     color: #333;
-    padding: 20px;
+    padding: clamp(10px, 2vw, 20px);
+    overflow-x: hidden;
 }
 
 #login {
@@ -47,6 +48,7 @@ body {
 #app {
     max-width: 1100px;
     margin: auto;
+    width: 100%;
 }
 
 h1 {
@@ -71,6 +73,14 @@ button {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+    max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+    max-width: 100%;
 }
 
 .nav-buttons button {
@@ -88,6 +98,7 @@ button {
     border-radius: 12px;
     margin-bottom: 20px;
     box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
 }
 
 .hint {
@@ -120,8 +131,8 @@ button {
 /* ── Settings rows ─────────────────────────────── */
 
 .settings-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(140px, 1.5fr) repeat(3, minmax(72px, 0.8fr)) repeat(2, auto);
     align-items: center;
     gap: 8px;
     margin-bottom: 10px;
@@ -157,19 +168,20 @@ button {
 /* ── Ingredient rows ───────────────────────────── */
 
 .ingredient-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(150px, 1.4fr) minmax(150px, 1.2fr) minmax(88px, 0.7fr) minmax(90px, 0.7fr) auto minmax(88px, 0.7fr) minmax(90px, 0.7fr) repeat(5, auto);
+    align-items: end;
     gap: 8px;
     margin-bottom: 10px;
 }
 
 .ingredient-row input[type="text"] {
-    min-width: 160px;
+    min-width: 0;
+    width: 100%;
 }
 
 .ingredient-row input[type="number"] {
-    width: 95px;
+    width: 100%;
 }
 
 input[type="number"],
@@ -185,6 +197,21 @@ select {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.picked-market-summary {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+.picked-market-summary span {
+    background: #f5f0eb;
+    border-radius: 999px;
+    padding: 5px 10px;
 }
 
 .no-ingredients {
@@ -313,6 +340,7 @@ select {
     width: 100%;
     border-collapse: collapse;
     margin-top: 8px;
+    min-width: 760px;
 }
 
 .market-table th,
@@ -364,7 +392,7 @@ select {
     border-radius: 16px;
     padding: 24px;
     width: 90%;
-    max-width: 620px;
+    max-width: min(960px, 96vw);
     max-height: 85vh;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
@@ -402,16 +430,27 @@ select {
 
 .modal-search-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 8px;
+    align-items: stretch;
 }
 
 .modal-search-row input {
-    flex: 1;
+    flex: 1 1 220px;
     padding: 9px 12px;
     border-radius: 8px;
     border: 1px solid #ccc;
     font-size: 14px;
+}
+
+.modal-search-row input[type="number"] {
+    flex: 0 1 110px;
+}
+
+.modal-search-row select {
+    flex: 0 1 110px;
+    min-width: 90px;
 }
 
 .modal-search-row button {
@@ -420,6 +459,7 @@ select {
     font-weight: 600;
     padding: 9px 16px;
     border-radius: 8px;
+    flex: 0 1 auto;
 }
 
 .modal-hint {
@@ -438,7 +478,7 @@ select {
 
 .pick-markets-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 16px;
 }
 
@@ -462,13 +502,13 @@ select {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-height: 400px;
+    max-height: min(52vh, 420px);
     overflow-y: auto;
 }
 
 .pick-product-card {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     padding: 8px;
     background: #f9f9f9;
@@ -563,6 +603,7 @@ select {
 .modal-footer {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
     margin-top: 16px;
     gap: 10px;
 }
@@ -593,15 +634,120 @@ select {
 
 /* ── Responsive ────────────────────────────────── */
 
+@media (max-width: 1024px) {
+    .ingredient-row {
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
+    }
+
+    .ingredient-row > button,
+    .ingredient-row > span,
+    .picked-market-summary {
+        grid-column: 1 / -1;
+    }
+
+    .settings-row {
+        grid-template-columns: repeat(4, minmax(110px, 1fr));
+    }
+
+    .settings-row > button,
+    .settings-name {
+        grid-column: span 2;
+    }
+}
+
 @media (max-width: 700px) {
+    body {
+        padding: 10px;
+    }
+
     .row {
         grid-template-columns: 1fr;
         text-align: center;
     }
 
+    .app-header-row {
+        flex-wrap: wrap;
+        text-align: center;
+    }
+
+    .lang-switcher-top {
+        position: static;
+        display: flex;
+        justify-content: center;
+        margin-bottom: 12px;
+    }
+
     .ing-header {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .settings-row,
+    .ingredient-row {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-row > *,
+    .ingredient-row > * {
+        grid-column: auto;
+        width: 100%;
+    }
+
+    .settings-name {
+        min-width: 0;
+    }
+
+    #dessertSelect,
+    #findPricesBtn {
+        width: 100%;
+        margin-top: 8px;
+    }
+
+    #marketResult {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .market-table {
+        min-width: 640px;
+    }
+
+    .modal-box {
+        width: 96vw;
+        max-height: 90vh;
+        padding: 16px;
+    }
+
+    .modal-search-row > * {
+        width: 100%;
+        flex: 1 1 100%;
+    }
+
+    .pick-markets-container {
+        grid-template-columns: 1fr;
+    }
+
+    .pick-product-card {
+        flex-wrap: wrap;
+    }
+
+    .pick-product-img {
+        width: 52px;
+        height: 52px;
+    }
+
+    .pick-select-btn,
+    .modal-clear-btn,
+    .modal-close-btn,
+    .btn-pick,
+    .btn-add-dessert {
+        width: 100%;
+    }
+
+    button,
+    input,
+    select {
+        font-size: 16px;
     }
 }
 
