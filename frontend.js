@@ -1795,6 +1795,7 @@ window.findCheapestForSelectedDessert = async function() {
       },
       quantity: Number(ing.quantity),
       quantityUnit: ing.unit,
+      quantityRatio: calculateEffectiveQuantity(ing.quantity, ing.unit, ing.packageSize, ing.packageUnit),
       displayQuantity: `${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})`,
     };
   }).filter((ing) => ing.name && ing.quantity > 0);

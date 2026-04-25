@@ -400,6 +400,7 @@ async function compareIngredients(ingredients) {
     const name = normalizeText(ingredient?.name);
     const quantity = Number(ingredient?.quantity || 0);
     const quantityUnit = String(ingredient?.quantityUnit || "").trim().toLowerCase();
+    const quantityRatio = Number(ingredient?.quantityRatio || 0);
     const displayQuantity = normalizeText(ingredient?.displayQuantity || "");
     const marketNames = ingredient?.marketNames && typeof ingredient.marketNames === "object"
       ? ingredient.marketNames
@@ -439,7 +440,7 @@ async function compareIngredients(ingredients) {
           cachedSelections?.sok?.packageSize,
           cachedSelections?.sok?.packageUnit,
         )
-      : quantity;
+      : (Number.isFinite(quantityRatio) && quantityRatio > 0 ? quantityRatio : quantity);
     const migrosQuantityRatio = hasCachedMigrosPrice
       ? calculateNeededRatio(
           quantity,
@@ -447,7 +448,7 @@ async function compareIngredients(ingredients) {
           cachedSelections?.migros?.packageSize,
           cachedSelections?.migros?.packageUnit,
         )
-      : quantity;
+      : (Number.isFinite(quantityRatio) && quantityRatio > 0 ? quantityRatio : quantity);
     const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * sokQuantityRatio : null;
     const migrosCost = migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * migrosQuantityRatio : null;
 
