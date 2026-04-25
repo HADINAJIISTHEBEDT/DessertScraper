@@ -449,8 +449,12 @@ async function compareIngredients(ingredients) {
           cachedSelections?.migros?.packageUnit,
         )
       : (Number.isFinite(quantityRatio) && quantityRatio > 0 ? quantityRatio : quantity);
-    const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * sokQuantityRatio : null;
-    const migrosCost = migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * migrosQuantityRatio : null;
+    const sokCost = hasCachedSokPrice
+      ? sokUnitPrice
+      : (sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * sokQuantityRatio : null);
+    const migrosCost = hasCachedMigrosPrice
+      ? migrosUnitPrice
+      : (migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * migrosQuantityRatio : null);
 
     if (sokCost !== null) totals.sok += sokCost;
     if (migrosCost !== null) totals.migros += migrosCost;
@@ -461,12 +465,12 @@ async function compareIngredients(ingredients) {
       marketNames: { sok: sokQuery, migros: migrosQuery },
       sok: {
         name: sokItem?.name || sokQuery,
-        unitPrice: sokUnitPrice,
+        unitPrice: hasCachedSokPrice ? sokCost : sokUnitPrice,
         cost: sokCost,
       },
       migros: {
         name: migrosItem?.name || migrosQuery,
-        unitPrice: migrosUnitPrice,
+        unitPrice: hasCachedMigrosPrice ? migrosCost : migrosUnitPrice,
         cost: migrosCost,
       },
     });
