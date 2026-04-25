@@ -309,6 +309,22 @@ textarea:focus {
     flex: 0 0 96px;
 }
 
+.market-price-field {
+    display: grid;
+    gap: 6px;
+    min-width: 132px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.market-price-field span {
+    font-size: 0.82rem;
+}
+
+.market-price-field input {
+    min-width: 0;
+}
+
 .ingredient-row > button {
     flex: 0 0 auto;
     min-height: 50px;
