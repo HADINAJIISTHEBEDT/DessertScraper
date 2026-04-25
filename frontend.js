@@ -636,11 +636,12 @@ function renderPickResults(data, quantity = 1, quantityUnit = "piece") {
 
 function escapeAttr(s) { return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function escapeText(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-window.applyPickedItem = function(market, name, packageSize, packageUnit) {
+window.applyPickedItem = function(market, name, price, packageSize, packageUnit) {
   if (!_pickTarget) return;
   _pickState.draftSelections[market] = {
     market,
     name,
+    price: Number.isFinite(Number(price)) ? Number(price) : null,
     packageSize: packageSize ? Number(packageSize) : null,
     packageUnit: packageUnit || "",
   };
