@@ -18,6 +18,28 @@ const MARKET_LABELS = {
   migros: "Migros",
 };
 
+function toBaseUnit(value, unit) {
+  const amount = Number(value);
+  const normalizedUnit = String(unit || "").trim().toLowerCase();
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (normalizedUnit === "g") return { type: "mass", value: amount };
+  if (normalizedUnit === "kg") return { type: "mass", value: amount * 1000 };
+  if (normalizedUnit === "ml") return { type: "volume", value: amount };
+  if (normalizedUnit === "l") return { type: "volume", value: amount * 1000 };
+  if (normalizedUnit === "piece") return { type: "count", value: amount };
+  return null;
+}
+
+function calculateNeededRatio(quantity, quantityUnit, packageSize, packageUnit) {
+  const wanted = toBaseUnit(quantity, quantityUnit);
+  const pack = toBaseUnit(packageSize, packageUnit);
+  if (!wanted || !pack || wanted.type !== pack.type) {
+    const fallback = Number(quantity);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 1;
+  }
+  return Math.max(wanted.value / pack.value, 0.01);
+}
+
 function logScrape(stage, message) {
   console.log(`[Scraper][${stage}] ${message}`);
 }
@@ -377,6 +399,8 @@ async function compareIngredients(ingredients) {
   for (const ingredient of Array.isArray(ingredients) ? ingredients : []) {
     const name = normalizeText(ingredient?.name);
     const quantity = Number(ingredient?.quantity || 0);
+    const quantityUnit = String(ingredient?.quantityUnit || "").trim().toLowerCase();
+    const displayQuantity = normalizeText(ingredient?.displayQuantity || "");
     const marketNames = ingredient?.marketNames && typeof ingredient.marketNames === "object"
       ? ingredient.marketNames
       : {};
@@ -408,15 +432,31 @@ async function compareIngredients(ingredients) {
       : (Array.isArray(migrosResult) && migrosResult.length ? migrosResult[0] : null);
     const sokUnitPrice = sokItem ? Number(sokItem.price) : null;
     const migrosUnitPrice = migrosItem ? Number(migrosItem.price) : null;
-    const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * quantity : null;
-    const migrosCost = migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * quantity : null;
+    const sokQuantityRatio = hasCachedSokPrice
+      ? calculateNeededRatio(
+          quantity,
+          quantityUnit,
+          cachedSelections?.sok?.packageSize,
+          cachedSelections?.sok?.packageUnit,
+        )
+      : quantity;
+    const migrosQuantityRatio = hasCachedMigrosPrice
+      ? calculateNeededRatio(
+          quantity,
+          quantityUnit,
+          cachedSelections?.migros?.packageSize,
+          cachedSelections?.migros?.packageUnit,
+        )
+      : quantity;
+    const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * sokQuantityRatio : null;
+    const migrosCost = migrosUnitPrice !== null && Number.isFinite(migrosUnitPrice) ? migrosUnitPrice * migrosQuantityRatio : null;
 
     if (sokCost !== null) totals.sok += sokCost;
     if (migrosCost !== null) totals.migros += migrosCost;
 
     rows.push({
       ingredient: name,
-      quantity,
+      quantity: displayQuantity || quantity,
       marketNames: { sok: sokQuery, migros: migrosQuery },
       sok: {
         name: sokItem?.name || sokQuery,

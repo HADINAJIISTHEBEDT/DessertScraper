@@ -1793,7 +1793,8 @@ window.findCheapestForSelectedDessert = async function() {
         sok: ing.marketSelections?.sok || null,
         migros: ing.marketSelections?.migros || null,
       },
-      quantity: calculateEffectiveQuantity(ing.quantity, ing.unit, ing.packageSize, ing.packageUnit),
+      quantity: Number(ing.quantity),
+      quantityUnit: ing.unit,
       displayQuantity: `${ing.quantity} ${ing.unit} (pack ${ing.packageSize} ${ing.packageUnit})`,
     };
   }).filter((ing) => ing.name && ing.quantity > 0);
