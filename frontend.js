@@ -288,7 +288,17 @@ async function detectServerPort() {
   return false;
 }
 
-function loadLocal() { const r = localStorage.getItem(LOCAL_KEY); if (!r) return; try { const p = JSON.parse(r); if (Array.isArray(p)) desserts = p.map(d => ({...d, ingredients:(Array.isArray(d.ingredients)?d.ingredients:[]).map(normalizeIngredient)})); } catch(_) {} }
+function loadLocal() {
+  const r = localStorage.getItem(LOCAL_KEY);
+  if (!r) return;
+  try {
+    const p = JSON.parse(r);
+    if (Array.isArray(p)) {
+      desserts = p.map(d => ({ ...d, ingredients: (Array.isArray(d.ingredients) ? d.ingredients : []).map(normalizeIngredient) }));
+      saveLocal();
+    }
+  } catch(_) {}
+}
 function saveLocal() { localStorage.setItem(LOCAL_KEY, JSON.stringify(desserts)); }
 
 function urlBase64ToUint8Array(base64String) {
@@ -1558,6 +1568,9 @@ function normalizeIngredient(ing) {
     normalizedSelections[market] = {
       market,
       name: String(marketSelections[market].name || ""),
+      price: Number.isFinite(Number(marketSelections[market].price))
+        ? Number(marketSelections[market].price)
+        : null,
       packageSize: Number.isFinite(Number(marketSelections[market].packageSize))
         ? Number(marketSelections[market].packageSize)
         : null,
@@ -1565,13 +1578,30 @@ function normalizeIngredient(ing) {
     };
   });
 
+  let normalizedPackageSize = Number.isFinite(Number(ing?.packageSize)) ? Number(ing.packageSize) : 1;
+  let normalizedPackageUnit = String(ing?.packageUnit || "piece");
+  const repairSource = marketKeys()
+    .map((market) => normalizedSelections[market])
+    .find((selection) =>
+      selection
+      && Number.isFinite(Number(selection.packageSize))
+      && selection.packageUnit
+      && Number.isFinite(Number(selection.price))
+      && Math.abs(normalizedPackageSize - Number(selection.price)) < 0.0001
+    );
+
+  if (repairSource) {
+    normalizedPackageSize = Number(repairSource.packageSize);
+    normalizedPackageUnit = String(repairSource.packageUnit || normalizedPackageUnit);
+  }
+
   return {
     name: String(ing?.name || ""),
     quantity: Number.isFinite(Number(ing?.quantity)) ? Number(ing.quantity) : 1,
     unit: String(ing?.unit || "piece"),
     description: String(ing?.description || ""),
-    packageSize: Number.isFinite(Number(ing?.packageSize)) ? Number(ing.packageSize) : 1,
-    packageUnit: String(ing?.packageUnit || "piece"),
+    packageSize: normalizedPackageSize,
+    packageUnit: normalizedPackageUnit,
     marketSelections: normalizedSelections,
   };
 }
@@ -1621,11 +1651,12 @@ window.closePickModal = function() {
   _pickState = { query: "", results: null, quantity: 1, quantityUnit: "piece", draftSelections: emptyMarketSelections() };
 };
 
-window.applyPickedItem = function(market, name, packageSize, packageUnit) {
+window.applyPickedItem = function(market, name, price, packageSize, packageUnit) {
   if (!_pickTarget) return;
   _pickState.draftSelections[market] = {
     market,
     name,
+    price: Number.isFinite(Number(price)) ? Number(price) : null,
     packageSize: packageSize ? Number(packageSize) : null,
     packageUnit: packageUnit || "",
   };
