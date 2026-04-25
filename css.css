@@ -268,14 +268,60 @@ textarea:focus {
 }
 
 .ingredient-row {
-    display: grid;
-    grid-template-columns: minmax(160px, 1.3fr) minmax(160px, 1.15fr) minmax(92px, 0.65fr) minmax(96px, 0.72fr) auto minmax(96px, 0.68fr) minmax(96px, 0.72fr) repeat(5, auto);
-    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
     padding: 14px;
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.72);
     border: 1px solid rgba(121, 92, 61, 0.08);
+}
+
+.ingredient-row > :nth-child(1) {
+    flex: 1 1 160px;
+}
+
+.ingredient-row > :nth-child(2) {
+    flex: 1.15 1 170px;
+}
+
+.ingredient-row > :nth-child(3) {
+    flex: 0 0 92px;
+}
+
+.ingredient-row > :nth-child(4) {
+    flex: 0 0 106px;
+}
+
+.ingredient-row > :nth-child(5) {
+    flex: 0 0 auto;
+    font-weight: 700;
+    color: var(--muted);
+    padding: 0 2px;
+}
+
+.ingredient-row > :nth-child(6) {
+    flex: 0 0 96px;
+}
+
+.ingredient-row > :nth-child(7) {
+    flex: 0 0 96px;
+}
+
+.ingredient-row > button {
+    flex: 0 0 auto;
+    min-height: 50px;
+    padding: 11px 16px;
+    border-radius: 16px;
+    font-size: 0.95rem;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.ingredient-row > .btn-pick {
+    min-width: 124px;
+    white-space: normal;
 }
 
 .ingredients-list {
@@ -284,10 +330,11 @@ textarea:focus {
 }
 
 .picked-market-summary {
-    grid-column: 1 / -1;
+    flex: 1 0 100%;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    margin-top: 2px;
 }
 
 .picked-market-summary span,
@@ -345,6 +392,10 @@ textarea:focus {
 .nav-buttons button {
     background: linear-gradient(135deg, #3f342b, #584636);
     color: #fff8f3;
+}
+
+.ingredient-row > button:not(.btn-pick):not(.btn-delete) {
+    min-width: 86px;
 }
 
 .market-table-wrap {
@@ -582,14 +633,21 @@ textarea:focus {
 }
 
 @media (max-width: 1100px) {
-    .ingredient-row {
-        grid-template-columns: repeat(4, minmax(120px, 1fr));
+    .ingredient-row > :nth-child(1),
+    .ingredient-row > :nth-child(2) {
+        flex: 1 1 220px;
+    }
+
+    .ingredient-row > :nth-child(3),
+    .ingredient-row > :nth-child(4),
+    .ingredient-row > :nth-child(6),
+    .ingredient-row > :nth-child(7) {
+        flex: 1 1 120px;
     }
 
     .ingredient-row > button,
-    .ingredient-row > span,
-    .picked-market-summary {
-        grid-column: 1 / -1;
+    .ingredient-row > .btn-pick {
+        min-width: 112px;
     }
 
     .settings-row {
@@ -608,7 +666,6 @@ textarea:focus {
     .modal-search-row,
     .pick-markets-container,
     .settings-row,
-    .ingredient-row,
     .row {
         grid-template-columns: 1fr;
     }
@@ -622,7 +679,6 @@ textarea:focus {
     }
 
     .modal-search-row > *,
-    .ingredient-row > *,
     .settings-row > *,
     .nav-buttons button,
     .pick-confirm-btn,
@@ -631,6 +687,14 @@ textarea:focus {
     .btn-pick,
     .ingredient-row button {
         width: 100%;
+    }
+
+    .ingredient-row > * {
+        flex: 1 1 100%;
+    }
+
+    .ingredient-row > :nth-child(5) {
+        text-align: center;
     }
 }
 
