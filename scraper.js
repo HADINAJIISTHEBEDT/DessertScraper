@@ -380,17 +380,32 @@ async function compareIngredients(ingredients) {
     const marketNames = ingredient?.marketNames && typeof ingredient.marketNames === "object"
       ? ingredient.marketNames
       : {};
+    const cachedSelections = ingredient?.cachedSelections && typeof ingredient.cachedSelections === "object"
+      ? ingredient.cachedSelections
+      : {};
     if (!name || quantity <= 0) continue;
 
     const sokQuery = normalizeText(marketNames.sok || name);
     const migrosQuery = normalizeText(marketNames.migros || name);
+    const hasCachedSokPrice = Number.isFinite(Number(cachedSelections?.sok?.price));
+    const hasCachedMigrosPrice = Number.isFinite(Number(cachedSelections?.migros?.price));
     const [sokResult, migrosResult] = await Promise.all([
-      searchProduct(sokQuery, "sok").catch(() => []),
-      searchProduct(migrosQuery, "migros").catch(() => []),
+      hasCachedSokPrice ? Promise.resolve([]) : searchProduct(sokQuery, "sok").catch(() => []),
+      hasCachedMigrosPrice ? Promise.resolve([]) : searchProduct(migrosQuery, "migros").catch(() => []),
     ]);
 
-    const sokItem = Array.isArray(sokResult) && sokResult.length ? sokResult[0] : null;
-    const migrosItem = Array.isArray(migrosResult) && migrosResult.length ? migrosResult[0] : null;
+    const sokItem = hasCachedSokPrice
+      ? {
+          name: normalizeText(cachedSelections.sok?.name || sokQuery),
+          price: Number(cachedSelections.sok.price),
+        }
+      : (Array.isArray(sokResult) && sokResult.length ? sokResult[0] : null);
+    const migrosItem = hasCachedMigrosPrice
+      ? {
+          name: normalizeText(cachedSelections.migros?.name || migrosQuery),
+          price: Number(cachedSelections.migros.price),
+        }
+      : (Array.isArray(migrosResult) && migrosResult.length ? migrosResult[0] : null);
     const sokUnitPrice = sokItem ? Number(sokItem.price) : null;
     const migrosUnitPrice = migrosItem ? Number(migrosItem.price) : null;
     const sokCost = sokUnitPrice !== null && Number.isFinite(sokUnitPrice) ? sokUnitPrice * quantity : null;
