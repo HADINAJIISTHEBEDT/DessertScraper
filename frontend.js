@@ -7,6 +7,7 @@ let SCRAPER_API_BASE = null;
 const AUTO_EMAIL = "5000";
 const AUTO_PASSWORD = "5000";
 const LOCAL_KEY = "desserts_offline_data_v2";
+const REPORT_KEY = "desserts_monthly_reports_v1";
 let pushToken = null;
 let pushStatus = {
   checked: false,
@@ -26,6 +27,8 @@ const FIREBASE_CONFIG_FALLBACK = {
 };
 
 let currentLang = localStorage.getItem("app_lang") || "en";
+let monthlyReports = {};
+let selectedReportMonth = null;
 
 const translations = {
   en: {
@@ -143,6 +146,26 @@ const extraTranslations = {
     pushUnsupportedDevice: "Push notifications are not supported on this device",
     pushFailedToken: "Failed to get FCM token",
     arabic: "Arabic",
+    reportsTab: "Reports",
+    reportsTitle: "Monthly Cost Report",
+    reportMonth: "Month",
+    reportRuns: "Compare Runs",
+    reportDesserts: "Desserts Compared",
+    reportTrackedIngredients: "Tracked Ingredients",
+    reportMarketTotals: "Monthly Market Totals",
+    reportDessertUsage: "Dessert Activity",
+    reportIngredientTrends: "Ingredient Price Trend",
+    reportIngredientName: "Ingredient",
+    reportTimesUsed: "Times Used",
+    reportFirstPrice: "First Price",
+    reportLastPrice: "Last Price",
+    reportChange: "Change",
+    reportMoves: "Moves",
+    reportNoData: "No data yet",
+    reportMonthEmpty: "No monthly report yet. Run Find Cheapest Market to start tracking.",
+    reportIncrease: "up",
+    reportDecrease: "down",
+    reportSame: "same",
   },
   ar: {
     sokLabel: "\u0634\u0648\u0643",
@@ -174,6 +197,26 @@ const extraTranslations = {
     pushUnsupportedDevice: "\u0625\u0634\u0639\u0627\u0631\u0627\u062a \u0627\u0644\u062f\u0641\u0639 \u063a\u064a\u0631 \u0645\u062f\u0639\u0648\u0645\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u062c\u0647\u0627\u0632",
     pushFailedToken: "\u0641\u0634\u0644 \u0641\u064a \u0627\u0644\u062d\u0635\u0648\u0644 \u0639\u0644\u0649 \u0631\u0645\u0632 FCM",
     arabic: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+    reportsTab: "\u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631",
+    reportsTitle: "\u062a\u0642\u0631\u064a\u0631 \u0627\u0644\u062a\u0643\u0644\u0641\u0629 \u0627\u0644\u0634\u0647\u0631\u064a",
+    reportMonth: "\u0627\u0644\u0634\u0647\u0631",
+    reportRuns: "\u0645\u0631\u0627\u062a \u0627\u0644\u0645\u0642\u0627\u0631\u0646\u0629",
+    reportDesserts: "\u0627\u0644\u062d\u0644\u0648\u064a\u0627\u062a \u0627\u0644\u062a\u064a \u062a\u0645\u062a \u0645\u0642\u0627\u0631\u0646\u062a\u0647\u0627",
+    reportTrackedIngredients: "\u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a \u0627\u0644\u0645\u062a\u062a\u0628\u0639\u0629",
+    reportMarketTotals: "\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0623\u0633\u0648\u0627\u0642 \u0627\u0644\u0634\u0647\u0631\u064a",
+    reportDessertUsage: "\u0646\u0634\u0627\u0637 \u0627\u0644\u062d\u0644\u0648\u064a\u0627\u062a",
+    reportIngredientTrends: "\u0627\u062a\u062c\u0627\u0647 \u0633\u0639\u0631 \u0627\u0644\u0645\u0643\u0648\u0646\u0627\u062a",
+    reportIngredientName: "\u0627\u0644\u0645\u0643\u0648\u0646",
+    reportTimesUsed: "\u0645\u0631\u0627\u062a \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645",
+    reportFirstPrice: "\u0623\u0648\u0644 \u0633\u0639\u0631",
+    reportLastPrice: "\u0622\u062e\u0631 \u0633\u0639\u0631",
+    reportChange: "\u0627\u0644\u062a\u063a\u064a\u0631",
+    reportMoves: "\u0627\u0644\u062d\u0631\u0643\u0627\u062a",
+    reportNoData: "\u0644\u0627 \u0628\u064a\u0627\u0646\u0627\u062a \u0628\u0639\u062f",
+    reportMonthEmpty: "\u0644\u0627 \u064a\u0648\u062c\u062f \u062a\u0642\u0631\u064a\u0631 \u0634\u0647\u0631\u064a \u0628\u0639\u062f. \u0634\u063a\u0644 \u0627\u0644\u0628\u062d\u062b \u0639\u0646 \u0623\u0631\u062e\u0635 \u0633\u0648\u0642 \u0644\u0628\u062f\u0621 \u0627\u0644\u062a\u062a\u0628\u0639.",
+    reportIncrease: "\u0627\u0631\u062a\u0641\u0627\u0639",
+    reportDecrease: "\u0627\u0646\u062e\u0641\u0627\u0636",
+    reportSame: "\u062b\u0627\u0628\u062a",
   },
 };
 
@@ -212,13 +255,14 @@ function hasAndroidNotificationPermission() {
 
 function translateUI() {
   const map = { appTitle:"appTitle", activeDessertsTitle:"activeDesserts", expiredDessertsTitle:"expiredDesserts",
-    marketPricesTitle:"marketPrices", timerSettingsTitle:"timerSettings", ingredientsTitle:"ingredientsTitle",
+    marketPricesTitle:"marketPrices", timerSettingsTitle:"timerSettings", ingredientsTitle:"ingredientsTitle", reportsTitle:"reportsTitle",
     dessertLabel:"dessert", marketHint:"marketHint", pickModalTitle:"pickItemFromMarket", pickSearchBtn:"searchBtn",
     pickModalHint:"modalHint", clearResultsBtn:"clearResults", closeModalBtn:"closeBtn", findPricesBtn:"findCheapestBtn" };
   for (const [key, id] of Object.entries(map)) { const el = document.getElementById(id); if (el) el.textContent = t(key); }
   const n = document.getElementById("navTimer"); if (n) n.textContent = t("timerTab");
   const m = document.getElementById("navMarket"); if (m) m.textContent = t("marketTab");
   const s = document.getElementById("navSettings"); if (s) s.textContent = t("settingsTab");
+  const r = document.getElementById("navReports"); if (r) r.textContent = t("reportsTab");
   const lt = document.querySelector("#login h2"); if (lt) lt.textContent = t("loginTitle");
   const lb = document.querySelector("#login button"); if (lb) lb.textContent = t("loginBtn");
   const e = document.getElementById("email"); if (e) e.placeholder = t("email");
@@ -227,13 +271,14 @@ function translateUI() {
   const pqi = document.getElementById("pickQuantityInput"); if (pqi) pqi.placeholder = t("quantityToSearch");
   const pqu = document.getElementById("pickQuantityUnit"); if (pqu) pqu.title = t("quantityUnit");
   renderLanguageSwitcher();
+  renderMonthlyReport();
 }
 
 function setLanguage(lang) {
   currentLang = lang; localStorage.setItem("app_lang", lang);
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   document.documentElement.lang = lang;
-  translateUI(); render(); renderSettings(); renderDessertSelect();
+  translateUI(); render(); renderSettings(); renderDessertSelect(); renderMonthlyReport();
 }
 
 function renderLanguageSwitcher() {
@@ -243,6 +288,232 @@ function renderLanguageSwitcher() {
     <option value="ar" ${currentLang==="ar"?"selected":""}>${t("arabic")}</option></select>`;
 }
 window.setLanguage = setLanguage;
+
+function loadReports() {
+  const raw = localStorage.getItem(REPORT_KEY);
+  if (!raw) {
+    monthlyReports = {};
+    selectedReportMonth = currentMonthKey();
+    return;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    monthlyReports = parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    monthlyReports = {};
+  }
+  const months = getReportMonths();
+  selectedReportMonth = selectedReportMonth && monthlyReports[selectedReportMonth]
+    ? selectedReportMonth
+    : (months[0] || currentMonthKey());
+}
+
+function saveReports() {
+  localStorage.setItem(REPORT_KEY, JSON.stringify(monthlyReports));
+}
+
+function currentMonthKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getReportMonths() {
+  return Object.keys(monthlyReports || {}).sort((a, b) => b.localeCompare(a));
+}
+
+function formatReportMonth(monthKey) {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return monthKey || t("reportNoData");
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString(currentLang === "ar" ? "ar" : "en", {
+    year: "numeric",
+    month: "long",
+  });
+}
+
+function recordMonthlyReport(dessertName, reportData) {
+  const monthKey = currentMonthKey();
+  if (!Array.isArray(monthlyReports[monthKey])) monthlyReports[monthKey] = [];
+  monthlyReports[monthKey].push({
+    timestamp: new Date().toISOString(),
+    dessertName: String(dessertName || ""),
+    totals: {
+      sok: Number(reportData?.totals?.sok ?? 0),
+      migros: Number(reportData?.totals?.migros ?? 0),
+    },
+    cheapestMarket: String(reportData?.cheapestMarket || ""),
+    rows: Array.isArray(reportData?.rows)
+      ? reportData.rows.map((row) => ({
+          ingredient: String(row?.ingredient || ""),
+          quantity: String(row?.quantity || ""),
+          sok: {
+            name: String(row?.sok?.name || ""),
+            unitPrice: Number.isFinite(Number(row?.sok?.unitPrice)) ? Number(row.sok.unitPrice) : null,
+            cost: Number.isFinite(Number(row?.sok?.cost)) ? Number(row.sok.cost) : null,
+          },
+          migros: {
+            name: String(row?.migros?.name || ""),
+            unitPrice: Number.isFinite(Number(row?.migros?.unitPrice)) ? Number(row.migros.unitPrice) : null,
+            cost: Number.isFinite(Number(row?.migros?.cost)) ? Number(row.migros.cost) : null,
+          },
+        }))
+      : [],
+  });
+  if (monthlyReports[monthKey].length > 250) monthlyReports[monthKey] = monthlyReports[monthKey].slice(-250);
+  selectedReportMonth = monthKey;
+  saveReports();
+}
+
+function summarizeMonthlyReport(monthKey) {
+  const entries = Array.isArray(monthlyReports?.[monthKey]) ? monthlyReports[monthKey] : [];
+  const dessertCounts = {};
+  const ingredientMap = new Map();
+  const totals = { sok: 0, migros: 0 };
+
+  entries.forEach((entry) => {
+    const dessertName = String(entry?.dessertName || "").trim();
+    if (dessertName) dessertCounts[dessertName] = (dessertCounts[dessertName] || 0) + 1;
+    if (Number.isFinite(Number(entry?.totals?.sok))) totals.sok += Number(entry.totals.sok);
+    if (Number.isFinite(Number(entry?.totals?.migros))) totals.migros += Number(entry.totals.migros);
+
+    (Array.isArray(entry?.rows) ? entry.rows : []).forEach((row) => {
+      const ingredientName = String(row?.ingredient || "").trim();
+      if (!ingredientName) return;
+      if (!ingredientMap.has(ingredientName)) {
+        ingredientMap.set(ingredientName, { count: 0, values: [] });
+      }
+      const stats = ingredientMap.get(ingredientName);
+      stats.count += 1;
+      const numericValues = [row?.sok?.cost, row?.migros?.cost]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value >= 0);
+      if (numericValues.length) {
+        stats.values.push({
+          timestamp: String(entry?.timestamp || ""),
+          value: Math.min(...numericValues),
+        });
+      }
+    });
+  });
+
+  const ingredientRows = [...ingredientMap.entries()].map(([ingredient, stats]) => {
+    const orderedValues = stats.values.slice().sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+    const firstValue = orderedValues.length ? orderedValues[0].value : null;
+    const lastValue = orderedValues.length ? orderedValues[orderedValues.length - 1].value : null;
+    let increases = 0;
+    let decreases = 0;
+    let same = 0;
+    for (let index = 1; index < orderedValues.length; index += 1) {
+      const prev = orderedValues[index - 1].value;
+      const next = orderedValues[index].value;
+      if (next > prev) increases += 1;
+      else if (next < prev) decreases += 1;
+      else same += 1;
+    }
+    return {
+      ingredient,
+      count: stats.count,
+      firstValue,
+      lastValue,
+      change: firstValue !== null && lastValue !== null ? lastValue - firstValue : null,
+      increases,
+      decreases,
+      same,
+    };
+  }).sort((a, b) => b.count - a.count || a.ingredient.localeCompare(b.ingredient));
+
+  const dessertRows = Object.entries(dessertCounts)
+    .map(([dessert, count]) => ({ dessert, count }))
+    .sort((a, b) => b.count - a.count || a.dessert.localeCompare(b.dessert));
+
+  return {
+    monthKey,
+    entries,
+    ingredientRows,
+    dessertRows,
+    totals,
+  };
+}
+
+function renderMonthlyReport() {
+  const panel = document.getElementById("monthlyReport");
+  if (!panel) return;
+  const months = getReportMonths();
+  const activeMonth = selectedReportMonth && (monthlyReports[selectedReportMonth] || selectedReportMonth === currentMonthKey())
+    ? selectedReportMonth
+    : (months[0] || currentMonthKey());
+  selectedReportMonth = activeMonth;
+  const summary = summarizeMonthlyReport(activeMonth);
+  const monthOptions = months.length
+    ? months.map((month) => `<option value="${escapeAttr(month)}" ${month === activeMonth ? "selected" : ""}>${escapeText(formatReportMonth(month))}</option>`).join("")
+    : `<option value="${escapeAttr(activeMonth)}">${escapeText(formatReportMonth(activeMonth))}</option>`;
+
+  if (!summary.entries.length) {
+    panel.innerHTML = `<div class="report-toolbar"><label for="reportMonthSelect">${t("reportMonth")}</label><select id="reportMonthSelect" onchange="changeReportMonth(this.value)">${monthOptions}</select></div><p class="hint">${t("reportMonthEmpty")}</p>`;
+    return;
+  }
+
+  const dessertRows = summary.dessertRows.length
+    ? summary.dessertRows.map((row) => `<tr><td>${escapeText(row.dessert)}</td><td>${row.count}</td></tr>`).join("")
+    : `<tr><td colspan="2">${t("reportNoData")}</td></tr>`;
+
+  const ingredientRows = summary.ingredientRows.length
+    ? summary.ingredientRows.map((row) => `<tr><td>${escapeText(row.ingredient)}</td><td>${row.count}</td><td>${formatTryPrice(row.firstValue)}</td><td>${formatTryPrice(row.lastValue)}</td><td>${row.change === null ? "-" : formatTryPrice(row.change)}</td><td>${escapeText(`${t("reportIncrease")} ${row.increases} / ${t("reportDecrease")} ${row.decreases} / ${t("reportSame")} ${row.same}`)}</td></tr>`).join("")
+    : `<tr><td colspan="6">${t("reportNoData")}</td></tr>`;
+
+  panel.innerHTML = `
+    <div class="report-toolbar">
+      <label for="reportMonthSelect">${t("reportMonth")}</label>
+      <select id="reportMonthSelect" onchange="changeReportMonth(this.value)">${monthOptions}</select>
+    </div>
+    <div class="report-card-grid">
+      <article class="report-card"><span>${t("reportRuns")}</span><strong>${summary.entries.length}</strong></article>
+      <article class="report-card"><span>${t("reportDesserts")}</span><strong>${summary.dessertRows.length}</strong></article>
+      <article class="report-card"><span>${t("reportTrackedIngredients")}</span><strong>${summary.ingredientRows.length}</strong></article>
+    </div>
+    <div class="report-summary-grid">
+      <section class="report-section">
+        <h3>${t("reportMarketTotals")}</h3>
+        <div class="market-totals">
+          <p><strong>${marketLabel("sok")}:</strong> ${formatTryPrice(summary.totals.sok)}</p>
+          <p><strong>${marketLabel("migros")}:</strong> ${formatTryPrice(summary.totals.migros)}</p>
+        </div>
+      </section>
+      <section class="report-section">
+        <h3>${t("reportDessertUsage")}</h3>
+        <div class="report-table-wrap">
+          <table class="report-table">
+            <thead><tr><th>${t("dessert")}</th><th>${t("reportRuns")}</th></tr></thead>
+            <tbody>${dessertRows}</tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <section class="report-section">
+      <h3>${t("reportIngredientTrends")}</h3>
+      <div class="report-table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>${t("reportIngredientName")}</th>
+              <th>${t("reportTimesUsed")}</th>
+              <th>${t("reportFirstPrice")}</th>
+              <th>${t("reportLastPrice")}</th>
+              <th>${t("reportChange")}</th>
+              <th>${t("reportMoves")}</th>
+            </tr>
+          </thead>
+          <tbody>${ingredientRows}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+window.changeReportMonth = function(monthKey) {
+  selectedReportMonth = monthKey || currentMonthKey();
+  renderMonthlyReport();
+};
 
 let desserts = [
   { name:"Magnolia", days:5, hours:0, minutes:0, startTime:null, finished:false, notified:false, ingredients:[] },
@@ -425,7 +696,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (lt) lt.textContent = t("checkingConnection");
   const connected = await detectServerPort();
   if (!connected || !serverFound) return;
-  loadLocal(); renderLanguageSwitcher(); translateUI();
+  loadLocal(); loadReports(); renderLanguageSwitcher(); translateUI();
   const emailEl = document.getElementById("email"), passwordEl = document.getElementById("password");
   if (emailEl) emailEl.value = AUTO_EMAIL;
   if (passwordEl) passwordEl.value = AUTO_PASSWORD;
@@ -481,7 +752,7 @@ window.login = function() {
 function showApp() {
   document.getElementById("login").style.display = "none";
   document.getElementById("app").style.display = "block";
-  render(); renderSettings(); renderDessertSelect(); switchTab("timer");
+  render(); renderSettings(); renderDessertSelect(); renderMonthlyReport(); switchTab("timer");
   initNotifications();
   if (notificationsEnabled && Notification.permission === "granted") {
     ensurePushSubscription().catch(() => {
@@ -512,7 +783,7 @@ function triggerDessertFinishedAlert(dessert) {
 }
 
 window.switchTab = function(tabName) {
-  ["timer","market","settings"].forEach(tab => { const el = document.getElementById(`tab-${tab}`); if (el) el.classList.toggle("hidden", tab !== tabName); });
+  ["timer","market","settings","reports"].forEach(tab => { const el = document.getElementById(`tab-${tab}`); if (el) el.classList.toggle("hidden", tab !== tabName); });
 };
 
 function render() {
@@ -1537,7 +1808,10 @@ window.findCheapestForSelectedDessert = async function() {
       body: JSON.stringify({ ingredients }),
     });
     if (!res.ok) throw new Error(`API error ${res.status}`);
-    renderMarketResult(await res.json());
+    const data = await res.json();
+    recordMonthlyReport(dessert.name, data);
+    renderMarketResult(data);
+    renderMonthlyReport();
   } catch (err) {
     resultBox.innerHTML = `<p>${t("marketServiceError")}: ${err.message}</p>`;
   }

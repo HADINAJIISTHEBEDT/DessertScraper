@@ -196,7 +196,7 @@ textarea:focus {
 
 .nav-buttons {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 20px;
 }
@@ -432,6 +432,77 @@ textarea:focus {
     padding: 14px 12px;
     border-bottom: 1px solid rgba(123, 92, 62, 0.1);
     text-align: left;
+}
+
+.report-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.report-toolbar label {
+    font-weight: 800;
+}
+
+.report-toolbar select {
+    max-width: 260px;
+}
+
+.report-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.report-card,
+.report-section {
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(123, 92, 62, 0.1);
+}
+
+.report-card span {
+    display: block;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-size: 0.92rem;
+}
+
+.report-card strong {
+    font-size: 1.8rem;
+    letter-spacing: -0.04em;
+}
+
+.report-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.report-section h3 {
+    margin-bottom: 12px;
+}
+
+.report-table-wrap {
+    overflow-x: auto;
+}
+
+.report-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+}
+
+.report-table th,
+.report-table td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid rgba(123, 92, 62, 0.1);
 }
 
 .market-table th {
@@ -682,6 +753,8 @@ textarea:focus {
     .modal-search-row,
     .pick-markets-container,
     .settings-row,
+    .report-card-grid,
+    .report-summary-grid,
     .row {
         grid-template-columns: 1fr;
     }
