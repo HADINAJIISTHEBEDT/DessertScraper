@@ -283,6 +283,10 @@ const extraTranslations = {
     timerUsageSummary: "Timer Usage Summary",
     reportTimerUsage: "Timer Uses",
     reportTimerCount: "Timer Count",
+    eraseAll: "Erase All",
+    eraseAllConfirm:
+      "Are you sure you want to erase ALL data? This includes all reports, timer usage, and ingredients. This cannot be undone.",
+    dataErased: "All data has been erased.",
   },
   ar: {
     sokLabel: "\u0634\u0648\u0643",
@@ -374,6 +378,11 @@ const extraTranslations = {
     reportTimerUsage:
       "\u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u0645\u0624\u0642\u062a",
     reportTimerCount: "\u0639\u062f\u062f \u0627\u0644\u0645\u0624\u0642\u062a",
+    eraseAll: "\u0645\u0633\u062d \u0627\u0644\u0643\u0644",
+    eraseAllConfirm:
+      "\u0647\u0644 \u0623\u0646\u062a \u0645\u062a\u0623\u0643\u062f \u0623\u0646\u0643 \u062a\u0631\u064a\u062f \u0645\u0633\u062d \u062c\u0645\u064a\u0639 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a\u061f \u0644\u0627 \u064a\u0645\u0643\u0646 \u0627\u0644\u062a\u0631\u0627\u062c\u0639 \u0639\u0646 \u0630\u0644\u0643.",
+    dataErased:
+      "\u062a\u0645 \u0645\u0633\u062d \u062c\u0645\u064a\u0639 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a.",
   },
 };
 
@@ -764,6 +773,7 @@ function renderMonthlyReport() {
       <label for="reportMonthSelect">${t("reportMonth")}</label>
       <select id="reportMonthSelect" onchange="changeReportMonth(this.value)">${monthOptions}</select>
       <button class="btn-export-pdf" onclick="exportReportPDF()">${t("exportPDF")}</button>
+      <button class="btn-erase-all" onclick="eraseAllData()">${t("eraseAll")}</button>
     </div>
     <div class="report-card-grid">
       <article class="report-card"><span>${t("reportRuns")}</span><strong>${summary.entries.length}</strong></article>
@@ -846,6 +856,114 @@ function renderMonthlyReport() {
 window.changeReportMonth = function (monthKey) {
   selectedReportMonth = monthKey || currentMonthKey();
   renderMonthlyReport();
+};
+
+window.eraseAllData = function () {
+  if (!confirm(t("eraseAllConfirm"))) return;
+  localStorage.removeItem(LOCAL_KEY);
+  localStorage.removeItem(REPORT_KEY);
+  localStorage.removeItem(TIMER_USAGE_KEY);
+  monthlyReports = {};
+  timerUsage = {};
+  selectedReportMonth = null;
+  desserts = [
+    {
+      name: "Magnolia",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "English Cake",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Cheese Cake",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Tirimasu",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Othmaliye",
+      days: 10,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Fondant",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Sweet Syrup",
+      days: 30,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Ashta",
+      days: 10,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+    {
+      name: "Cookies",
+      days: 5,
+      hours: 0,
+      minutes: 0,
+      startTime: null,
+      finished: false,
+      notified: false,
+      ingredients: [],
+    },
+  ];
+  saveLocal();
+  render();
+  renderSettings();
+  renderDessertSelect();
+  renderMonthlyReport();
+  alert(t("dataErased"));
 };
 
 function buildAllMonthsSummary(months) {
@@ -2691,6 +2809,11 @@ function renderMarketResult(data) {
   });
   html += `</tbody></table><p><strong>${t("totalSok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>${t("totalMigros")}:</strong> ${formatTryPrice(totals.migros)}</p><p class="best-market">${t("cheapestMarket")}: ${marketLabel(cheapest)} (${formatTryPrice(cheapestTotal)})</p>`;
   resultBox.innerHTML = html;
+}
+
+function normalizeText(value) {
+  if (!value) return "";
+  return String(value).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function renderUnitOptions(sel) {
