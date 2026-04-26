@@ -882,16 +882,10 @@ window.exportReportPDF = function () {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
-  // Title page
-  doc.setFontSize(22);
-  doc.setTextColor(43, 33, 24);
-  doc.text(t("reportsTitle"), 105, 30, { align: "center" });
-
-  doc.setFontSize(12);
-  doc.setTextColor(118, 101, 84);
-  doc.text(`Generated: ${new Date().toLocaleDateString()}`, 105, 42, {
-    align: "center",
-  });
+  // Helper: translate to English for PDF (avoid Turkish character issues)
+  function pdfSafe(text) {
+    return String(text || "");
+  }
 
   // Summary stats
   const allMonthsSummary = buildAllMonthsSummary(months);
@@ -905,181 +899,154 @@ window.exportReportPDF = function () {
     totalSearches += r.searchCount;
   });
 
-  doc.setFontSize(14);
-  doc.setTextColor(43, 33, 24);
-  doc.text("Overall Summary", 14, 60);
+  // === PAGE 1: Summary + All Months + Dessert Activity ===
+  let y = 15;
 
+  doc.setFontSize(18);
+  doc.setTextColor(43, 33, 24);
+  doc.text("Dessert Cafe - Monthly Report", 105, y, { align: "center" });
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setTextColor(118, 101, 84);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 105, y, {
+    align: "center",
+  });
+  y += 12;
+
+  // Overall Summary
+  doc.setFontSize(12);
+  doc.setTextColor(43, 33, 24);
+  doc.text("Overall Summary", 14, y);
+  y += 7;
+
+  doc.setFontSize(9);
+  doc.text(`Total Comparisons: ${totalSearches}`, 14, y);
+  y += 5;
+  doc.text(`Sok Total: ${grandTotalSok.toFixed(2)} TL`, 14, y);
+  y += 5;
+  doc.text(`Migros Total: ${grandTotalMigros.toFixed(2)} TL`, 14, y);
+  y += 5;
+  doc.text(
+    `Savings: ${Math.abs(grandTotalSok - grandTotalMigros).toFixed(2)} TL`,
+    14,
+    y,
+  );
+  y += 10;
+
+  // All Months Table
   doc.setFontSize(11);
-  doc.text(`Total Market Comparisons: ${totalSearches}`, 14, 70);
-  doc.text(
-    `Cumulative ${marketLabel("sok")} Cost: ${grandTotalSok.toFixed(2)} TL`,
-    14,
-    78,
-  );
-  doc.text(
-    `Cumulative ${marketLabel("migros")} Cost: ${grandTotalMigros.toFixed(2)} TL`,
-    14,
-    86,
-  );
-  doc.text(
-    `Potential Savings: ${Math.abs(grandTotalSok - grandTotalMigros).toFixed(2)} TL`,
-    14,
-    94,
-  );
-
-  // All Months Comparison Table
-  doc.addPage();
-  doc.setFontSize(16);
-  doc.setTextColor(43, 33, 24);
-  doc.text(t("allMonthsComparison"), 14, 20);
+  doc.text("All Months", 14, y);
+  y += 3;
 
   const monthsTableData = allMonthsSummary.rows.map((r) => [
-    r.month,
+    r.monthKey,
     String(r.searchCount),
-    `${r.totalSok.toFixed(2)} TL`,
-    `${r.totalMigros.toFixed(2)} TL`,
-    marketLabel(r.cheapestMarket),
-    `${r.cheapestTotal.toFixed(2)} TL`,
+    `${r.totalSok.toFixed(0)}`,
+    `${r.totalMigros.toFixed(0)}`,
+    r.cheapestMarket === "sok" ? "Sok" : "Migros",
+    `${r.cheapestTotal.toFixed(0)} TL`,
   ]);
 
   doc.autoTable({
-    startY: 28,
-    head: [
-      [
-        t("reportMonth"),
-        t("reportSearchCount"),
-        `${marketLabel("sok")} ${t("totalCost")}`,
-        `${marketLabel("migros")} ${t("totalCost")}`,
-        t("cheapestMarket"),
-        t("bestPrice"),
-      ],
-    ],
+    startY: y,
+    head: [["Month", "Count", "Sok", "Migros", "Best", "Price"]],
     body: monthsTableData,
     theme: "grid",
-    headStyles: { fillColor: [233, 120, 39] },
+    headStyles: { fillColor: [233, 120, 39], fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
     alternateRowStyles: { fillColor: [248, 239, 228] },
-    styles: { fontSize: 9 },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
   });
 
-  // Detailed monthly reports
-  for (const month of months) {
-    doc.addPage();
-    const summary = summarizeMonthlyReport(month);
-    const monthLabel = formatReportMonth(month);
+  y = doc.lastAutoTable.finalY + 8;
 
-    doc.setFontSize(16);
-    doc.setTextColor(43, 33, 24);
-    doc.text(`Monthly Report - ${monthLabel}`, 14, 20);
+  // Dessert Activity Table
+  doc.setFontSize(11);
+  doc.text("Dessert Activity", 14, y);
+  y += 3;
 
-    // Market totals
-    doc.setFontSize(12);
-    doc.text(
-      `${marketLabel("sok")} Total: ${summary.totals.sok.toFixed(2)} TL`,
-      14,
-      32,
-    );
-    doc.text(
-      `${marketLabel("migros")} Total: ${summary.totals.migros.toFixed(2)} TL`,
-      14,
-      40,
-    );
-    doc.text(
-      `Potential Savings: ${Math.abs(summary.totals.sok - summary.totals.migros).toFixed(2)} TL`,
-      14,
-      48,
-    );
+  const firstMonth = months[0];
+  const firstSummary = summarizeMonthlyReport(firstMonth);
+  const dessertData = firstSummary.dessertRows.map((r) => {
+    const timerCount = firstSummary.timerUsage[r.dessert] || 0;
+    return [r.dessert, String(r.count), String(timerCount)];
+  });
 
-    // Dessert Activity
-    doc.setFontSize(14);
-    doc.text(t("reportDessertUsage"), 14, 60);
+  doc.autoTable({
+    startY: y,
+    head: [["Dessert", "Searches", "Timer Uses"]],
+    body: dessertData,
+    theme: "grid",
+    headStyles: { fillColor: [15, 118, 110], fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
+    alternateRowStyles: { fillColor: [255, 248, 239] },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
+  });
 
-    const dessertData = summary.dessertRows.map((r) => {
-      const timerCount = summary.timerUsage[r.dessert] || 0;
-      return [r.dessert, String(r.count), String(timerCount)];
-    });
+  // === PAGE 2: Ingredient Trends + Comparison Runs ===
+  doc.addPage();
+  y = 15;
+
+  // Ingredient Trends
+  doc.setFontSize(11);
+  doc.setTextColor(43, 33, 24);
+  doc.text("Ingredient Price Trends", 14, y);
+  y += 3;
+
+  const ingredientData = firstSummary.ingredientRows.map((r) => [
+    r.ingredient,
+    String(r.count),
+    r.firstValue !== null ? `${r.firstValue.toFixed(0)} TL` : "-",
+    r.lastValue !== null ? `${r.lastValue.toFixed(0)} TL` : "-",
+    r.change !== null ? `${r.change.toFixed(0)} TL` : "-",
+    `+${r.increases}/-${r.decreases}`,
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: [["Ingredient", "Used", "First", "Last", "Change", "+/-"]],
+    body: ingredientData,
+    theme: "grid",
+    headStyles: { fillColor: [233, 120, 39], fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
+    alternateRowStyles: { fillColor: [248, 239, 228] },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
+  });
+
+  y = doc.lastAutoTable.finalY + 8;
+
+  // Detailed Comparison Runs
+  if (firstSummary.entries.length > 0) {
+    doc.setFontSize(11);
+    doc.text("Recent Comparisons", 14, y);
+    y += 3;
+
+    const runsData = firstSummary.entries
+      .slice(-10)
+      .map((entry, idx) => [
+        String(idx + 1),
+        new Date(entry.timestamp).toLocaleDateString("en-GB"),
+        entry.dessertName,
+        `${entry.totals.sok.toFixed(0)}`,
+        `${entry.totals.migros.toFixed(0)}`,
+        entry.cheapestMarket === "sok" ? "Sok" : "Migros",
+      ]);
 
     doc.autoTable({
-      startY: 65,
-      head: [[t("dessert"), t("reportSearchCount"), t("reportTimerCount")]],
-      body: dessertData,
+      startY: y,
+      head: [["#", "Date", "Dessert", "Sok", "Migros", "Best"]],
+      body: runsData,
       theme: "grid",
-      headStyles: { fillColor: [15, 118, 110] },
+      headStyles: { fillColor: [15, 118, 110], fontSize: 7 },
+      bodyStyles: { fontSize: 7 },
       alternateRowStyles: { fillColor: [255, 248, 239] },
-      styles: { fontSize: 9 },
+      margin: { left: 14, right: 14 },
+      tableWidth: 180,
     });
-
-    // Ingredient Trends
-    const finalY = doc.lastAutoTable.finalY + 12;
-    doc.setFontSize(14);
-    doc.text(t("reportIngredientTrends"), 14, finalY);
-
-    const ingredientData = summary.ingredientRows.map((r) => [
-      r.ingredient,
-      String(r.count),
-      r.firstValue !== null ? `${r.firstValue.toFixed(2)} TL` : "-",
-      r.lastValue !== null ? `${r.lastValue.toFixed(2)} TL` : "-",
-      r.change !== null ? `${r.change.toFixed(2)} TL` : "-",
-      `+${r.increases} / -${r.decreases} =${r.same}`,
-    ]);
-
-    doc.autoTable({
-      startY: finalY + 5,
-      head: [
-        [
-          t("reportIngredientName"),
-          t("reportTimesUsed"),
-          t("reportFirstPrice"),
-          t("reportLastPrice"),
-          t("reportChange"),
-          t("reportMoves"),
-        ],
-      ],
-      body: ingredientData,
-      theme: "grid",
-      headStyles: { fillColor: [233, 120, 39] },
-      alternateRowStyles: { fillColor: [248, 239, 228] },
-      styles: { fontSize: 8 },
-    });
-
-    // Detailed comparison runs
-    if (summary.entries.length > 0) {
-      const runsFinalY = doc.lastAutoTable.finalY + 12;
-      doc.setFontSize(14);
-      doc.text("Detailed Comparison Runs", 14, runsFinalY);
-
-      const runsData = summary.entries.map((entry, idx) => {
-        const date = new Date(entry.timestamp).toLocaleString();
-        return [
-          String(idx + 1),
-          date,
-          entry.dessertName,
-          `${entry.totals.sok.toFixed(2)} TL`,
-          `${entry.totals.migros.toFixed(2)} TL`,
-          marketLabel(entry.cheapestMarket),
-          `${entry.cheapestMarket === "sok" ? entry.totals.sok : entry.totals.migros} TL`,
-        ];
-      });
-
-      doc.autoTable({
-        startY: runsFinalY + 5,
-        head: [
-          [
-            "#",
-            "Date",
-            t("dessert"),
-            `${marketLabel("sok")}`,
-            `${marketLabel("migros")}`,
-            t("cheapestMarket"),
-            t("bestPrice"),
-          ],
-        ],
-        body: runsData,
-        theme: "grid",
-        headStyles: { fillColor: [15, 118, 110] },
-        alternateRowStyles: { fillColor: [255, 248, 239] },
-        styles: { fontSize: 8 },
-      });
-    }
   }
 
   doc.save(`dessert-cafe-report-${new Date().toISOString().slice(0, 10)}.pdf`);
