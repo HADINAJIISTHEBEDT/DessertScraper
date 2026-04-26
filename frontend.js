@@ -882,12 +882,185 @@ window.exportReportPDF = function () {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
-  // Helper: translate to English for PDF (avoid Turkish character issues)
-  function pdfSafe(text) {
-    return String(text || "");
+  const isArabic = currentLang === "ar";
+  const activeMonth = selectedReportMonth || months[0];
+  const summary = summarizeMonthlyReport(activeMonth);
+  const monthName = formatReportMonth(activeMonth);
+
+  function pdfLabel(key) {
+    const labels = isArabic
+      ? {
+          title: "Dessert Cafe Report",
+          generated: "Generated",
+          currentMonth: "Current Month",
+          sokTotal: "Sok Total",
+          migrosTotal: "Migros Total",
+          savings: "Savings",
+          dessertActivity: "Dessert Activity",
+          dessert: "Dessert",
+          searches: "Searches",
+          timerUses: "Timer",
+          ingredientTrends: "Price Trends",
+          ingredient: "Ingredient",
+          used: "Used",
+          firstPrice: "First",
+          lastPrice: "Last",
+          change: "Change",
+          moves: "Moves",
+          allMonths: "All Months",
+          month: "Month",
+          count: "Count",
+          sok: "Sok",
+          migros: "Migros",
+          best: "Best",
+          price: "Price",
+          recentComparisons: "Recent Comparisons",
+          date: "Date",
+          totalComparisons: "Total Comparisons",
+        }
+      : {
+          title: "Dessert Cafe Report",
+          generated: "Generated",
+          currentMonth: "Current Month",
+          sokTotal: "Sok Total",
+          migrosTotal: "Migros Total",
+          savings: "Savings",
+          dessertActivity: "Dessert Activity",
+          dessert: "Dessert",
+          searches: "Searches",
+          timerUses: "Timer",
+          ingredientTrends: "Price Trends",
+          ingredient: "Ingredient",
+          used: "Used",
+          firstPrice: "First",
+          lastPrice: "Last",
+          change: "Change",
+          moves: "Moves",
+          allMonths: "All Months",
+          month: "Month",
+          count: "Count",
+          sok: "Sok",
+          migros: "Migros",
+          best: "Best",
+          price: "Price",
+          recentComparisons: "Recent Comparisons",
+          date: "Date",
+          totalComparisons: "Total Comparisons",
+        };
+    return labels[key] || key;
   }
 
-  // Summary stats
+  // === PAGE 1: Current Month Report ===
+  let y = 15;
+
+  doc.setFontSize(16);
+  doc.setTextColor(43, 33, 24);
+  doc.text(pdfLabel("title"), 105, y, { align: "center" });
+  y += 7;
+
+  doc.setFontSize(9);
+  doc.setTextColor(118, 101, 84);
+  doc.text(
+    `${pdfLabel("generated")}: ${new Date().toLocaleDateString(isArabic ? "ar" : "en-GB")}`,
+    105,
+    y,
+    { align: "center" },
+  );
+  y += 5;
+
+  doc.setFontSize(11);
+  doc.setTextColor(43, 33, 24);
+  doc.text(`${pdfLabel("currentMonth")}: ${monthName}`, 14, y);
+  y += 8;
+
+  doc.setFontSize(9);
+  doc.text(
+    `${pdfLabel("sokTotal")}: ${summary.totals.sok.toFixed(2)} TL`,
+    14,
+    y,
+  );
+  y += 5;
+  doc.text(
+    `${pdfLabel("migrosTotal")}: ${summary.totals.migros.toFixed(2)} TL`,
+    14,
+    y,
+  );
+  y += 5;
+  doc.text(
+    `${pdfLabel("savings")}: ${Math.abs(summary.totals.sok - summary.totals.migros).toFixed(2)} TL`,
+    14,
+    y,
+  );
+  y += 10;
+
+  // Dessert Activity Table
+  doc.setFontSize(10);
+  doc.text(pdfLabel("dessertActivity"), 14, y);
+  y += 3;
+
+  const dessertData = summary.dessertRows.map((r) => {
+    const timerCount = summary.timerUsage[r.dessert] || 0;
+    return [r.dessert, String(r.count), String(timerCount)];
+  });
+
+  doc.autoTable({
+    startY: y,
+    head: [[pdfLabel("dessert"), pdfLabel("searches"), pdfLabel("timerUses")]],
+    body: dessertData,
+    theme: "grid",
+    headStyles: { fillColor: [15, 118, 110], fontSize: 8 },
+    bodyStyles: { fontSize: 8 },
+    alternateRowStyles: { fillColor: [255, 248, 239] },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
+  });
+
+  y = doc.lastAutoTable.finalY + 8;
+
+  // Ingredient Trends Table
+  doc.setFontSize(10);
+  doc.text(pdfLabel("ingredientTrends"), 14, y);
+  y += 3;
+
+  const ingredientData = summary.ingredientRows.map((r) => [
+    r.ingredient,
+    String(r.count),
+    r.firstValue !== null ? `${r.firstValue.toFixed(2)} TL` : "-",
+    r.lastValue !== null ? `${r.lastValue.toFixed(2)} TL` : "-",
+    r.change !== null ? `${r.change.toFixed(2)} TL` : "-",
+    `+${r.increases}/-${r.decreases}`,
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: [
+      [
+        pdfLabel("ingredient"),
+        pdfLabel("used"),
+        pdfLabel("firstPrice"),
+        pdfLabel("lastPrice"),
+        pdfLabel("change"),
+        pdfLabel("moves"),
+      ],
+    ],
+    body: ingredientData,
+    theme: "grid",
+    headStyles: { fillColor: [233, 120, 39], fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
+    alternateRowStyles: { fillColor: [248, 239, 228] },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
+  });
+
+  // === PAGE 2: All Months Summary ===
+  doc.addPage();
+  y = 15;
+
+  doc.setFontSize(14);
+  doc.setTextColor(43, 33, 24);
+  doc.text(pdfLabel("allMonths"), 14, y);
+  y += 8;
+
   const allMonthsSummary = buildAllMonthsSummary(months);
   let grandTotalSok = 0;
   let grandTotalMigros = 0;
@@ -899,62 +1072,49 @@ window.exportReportPDF = function () {
     totalSearches += r.searchCount;
   });
 
-  // === PAGE 1: Summary + All Months + Dessert Activity ===
-  let y = 15;
-
-  doc.setFontSize(18);
-  doc.setTextColor(43, 33, 24);
-  doc.text("Dessert Cafe - Monthly Report", 105, y, { align: "center" });
-  y += 8;
-
-  doc.setFontSize(10);
-  doc.setTextColor(118, 101, 84);
-  doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 105, y, {
-    align: "center",
-  });
-  y += 12;
-
-  // Overall Summary
-  doc.setFontSize(12);
-  doc.setTextColor(43, 33, 24);
-  doc.text("Overall Summary", 14, y);
-  y += 7;
-
   doc.setFontSize(9);
-  doc.text(`Total Comparisons: ${totalSearches}`, 14, y);
+  doc.text(`${pdfLabel("totalComparisons")}: ${totalSearches}`, 14, y);
   y += 5;
-  doc.text(`Sok Total: ${grandTotalSok.toFixed(2)} TL`, 14, y);
-  y += 5;
-  doc.text(`Migros Total: ${grandTotalMigros.toFixed(2)} TL`, 14, y);
+  doc.text(`${pdfLabel("sokTotal")}: ${grandTotalSok.toFixed(2)} TL`, 14, y);
   y += 5;
   doc.text(
-    `Savings: ${Math.abs(grandTotalSok - grandTotalMigros).toFixed(2)} TL`,
+    `${pdfLabel("migrosTotal")}: ${grandTotalMigros.toFixed(2)} TL`,
     14,
     y,
   );
-  y += 10;
-
-  // All Months Table
-  doc.setFontSize(11);
-  doc.text("All Months", 14, y);
-  y += 3;
+  y += 5;
+  doc.text(
+    `${pdfLabel("savings")}: ${Math.abs(grandTotalSok - grandTotalMigros).toFixed(2)} TL`,
+    14,
+    y,
+  );
+  y += 8;
 
   const monthsTableData = allMonthsSummary.rows.map((r) => [
     r.monthKey,
     String(r.searchCount),
-    `${r.totalSok.toFixed(0)}`,
-    `${r.totalMigros.toFixed(0)}`,
-    r.cheapestMarket === "sok" ? "Sok" : "Migros",
-    `${r.cheapestTotal.toFixed(0)} TL`,
+    `${r.totalSok.toFixed(2)}`,
+    `${r.totalMigros.toFixed(2)}`,
+    r.cheapestMarket === "sok" ? pdfLabel("sok") : pdfLabel("migros"),
+    `${r.cheapestTotal.toFixed(2)} TL`,
   ]);
 
   doc.autoTable({
     startY: y,
-    head: [["Month", "Count", "Sok", "Migros", "Best", "Price"]],
+    head: [
+      [
+        pdfLabel("month"),
+        pdfLabel("count"),
+        pdfLabel("sok"),
+        pdfLabel("migros"),
+        pdfLabel("best"),
+        pdfLabel("price"),
+      ],
+    ],
     body: monthsTableData,
     theme: "grid",
-    headStyles: { fillColor: [233, 120, 39], fontSize: 7 },
-    bodyStyles: { fontSize: 7 },
+    headStyles: { fillColor: [233, 120, 39], fontSize: 8 },
+    bodyStyles: { fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 239, 228] },
     margin: { left: 14, right: 14 },
     tableWidth: 180,
@@ -962,83 +1122,34 @@ window.exportReportPDF = function () {
 
   y = doc.lastAutoTable.finalY + 8;
 
-  // Dessert Activity Table
-  doc.setFontSize(11);
-  doc.text("Dessert Activity", 14, y);
-  y += 3;
-
-  const firstMonth = months[0];
-  const firstSummary = summarizeMonthlyReport(firstMonth);
-  const dessertData = firstSummary.dessertRows.map((r) => {
-    const timerCount = firstSummary.timerUsage[r.dessert] || 0;
-    return [r.dessert, String(r.count), String(timerCount)];
-  });
-
-  doc.autoTable({
-    startY: y,
-    head: [["Dessert", "Searches", "Timer Uses"]],
-    body: dessertData,
-    theme: "grid",
-    headStyles: { fillColor: [15, 118, 110], fontSize: 7 },
-    bodyStyles: { fontSize: 7 },
-    alternateRowStyles: { fillColor: [255, 248, 239] },
-    margin: { left: 14, right: 14 },
-    tableWidth: 180,
-  });
-
-  // === PAGE 2: Ingredient Trends + Comparison Runs ===
-  doc.addPage();
-  y = 15;
-
-  // Ingredient Trends
-  doc.setFontSize(11);
-  doc.setTextColor(43, 33, 24);
-  doc.text("Ingredient Price Trends", 14, y);
-  y += 3;
-
-  const ingredientData = firstSummary.ingredientRows.map((r) => [
-    r.ingredient,
-    String(r.count),
-    r.firstValue !== null ? `${r.firstValue.toFixed(0)} TL` : "-",
-    r.lastValue !== null ? `${r.lastValue.toFixed(0)} TL` : "-",
-    r.change !== null ? `${r.change.toFixed(0)} TL` : "-",
-    `+${r.increases}/-${r.decreases}`,
-  ]);
-
-  doc.autoTable({
-    startY: y,
-    head: [["Ingredient", "Used", "First", "Last", "Change", "+/-"]],
-    body: ingredientData,
-    theme: "grid",
-    headStyles: { fillColor: [233, 120, 39], fontSize: 7 },
-    bodyStyles: { fontSize: 7 },
-    alternateRowStyles: { fillColor: [248, 239, 228] },
-    margin: { left: 14, right: 14 },
-    tableWidth: 180,
-  });
-
-  y = doc.lastAutoTable.finalY + 8;
-
-  // Detailed Comparison Runs
-  if (firstSummary.entries.length > 0) {
-    doc.setFontSize(11);
-    doc.text("Recent Comparisons", 14, y);
+  if (summary.entries.length > 0) {
+    doc.setFontSize(10);
+    doc.text(pdfLabel("recentComparisons"), 14, y);
     y += 3;
 
-    const runsData = firstSummary.entries
+    const runsData = summary.entries
       .slice(-10)
       .map((entry, idx) => [
         String(idx + 1),
-        new Date(entry.timestamp).toLocaleDateString("en-GB"),
+        new Date(entry.timestamp).toLocaleDateString(isArabic ? "ar" : "en-GB"),
         entry.dessertName,
-        `${entry.totals.sok.toFixed(0)}`,
-        `${entry.totals.migros.toFixed(0)}`,
-        entry.cheapestMarket === "sok" ? "Sok" : "Migros",
+        `${entry.totals.sok.toFixed(2)}`,
+        `${entry.totals.migros.toFixed(2)}`,
+        entry.cheapestMarket === "sok" ? pdfLabel("sok") : pdfLabel("migros"),
       ]);
 
     doc.autoTable({
       startY: y,
-      head: [["#", "Date", "Dessert", "Sok", "Migros", "Best"]],
+      head: [
+        [
+          "#",
+          pdfLabel("date"),
+          pdfLabel("dessert"),
+          pdfLabel("sok"),
+          pdfLabel("migros"),
+          pdfLabel("best"),
+        ],
+      ],
       body: runsData,
       theme: "grid",
       headStyles: { fillColor: [15, 118, 110], fontSize: 7 },
