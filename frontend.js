@@ -2403,6 +2403,58 @@ window.toggleNotifications = async function () {
   }
 };
 
+window.addEventListener("android-storage-permission", (event) => {
+  const granted = Boolean(event?.detail?.granted);
+  if (granted) {
+    localStorage.setItem("storage_permitted", "true");
+  }
+});
+
+function isAndroidStoragePermissionGranted() {
+  return (
+    isAndroidAppBridgeAvailable() &&
+    typeof window.AndroidApp.isStoragePermissionGranted === "function" &&
+    window.AndroidApp.isStoragePermissionGranted()
+  );
+}
+
+function requestAndroidStoragePermission() {
+  if (
+    isAndroidAppBridgeAvailable() &&
+    typeof window.AndroidApp.requestStoragePermission === "function"
+  ) {
+    window.AndroidApp.requestStoragePermission();
+  }
+}
+
+function androidSaveData(key, value) {
+  if (
+    isAndroidAppBridgeAvailable() &&
+    typeof window.AndroidApp.saveData === "function"
+  ) {
+    window.AndroidApp.saveData(key, value);
+  }
+}
+
+function androidLoadData(key) {
+  if (
+    isAndroidAppBridgeAvailable() &&
+    typeof window.AndroidApp.loadData === "function"
+  ) {
+    return window.AndroidApp.loadData(key);
+  }
+  return null;
+}
+
+function androidRemoveData(key) {
+  if (
+    isAndroidAppBridgeAvailable() &&
+    typeof window.AndroidApp.removeData === "function"
+  ) {
+    window.AndroidApp.removeData(key);
+  }
+}
+
 window.addEventListener("android-notification-permission", (event) => {
   const granted = Boolean(event?.detail?.granted);
   notificationsEnabled = granted;
