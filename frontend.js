@@ -2697,7 +2697,7 @@ function renderUnitOptions(sel) {
   return ["g", "kg", "ml", "l", "piece"]
     .map(
       (u) =>
-        `<option value="${u}" ${u === sel ? "selected" : ""}>${escapeText(unitLabel(u))}</option>`,
+        `<option value="${u}" ${u === sel ? "selected" : ""}>${escapeText(u)}</option>`,
     )
     .join("");
 }
@@ -3662,11 +3662,32 @@ function renderIngredientsSettings() {
 
       const row = document.createElement("div");
       row.className = "ingredient-row";
-      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${normalized.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${normalized.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${normalized.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(normalized.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${normalized.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(normalized.packageUnit)}</select><label class="market-price-field"><span>${marketLabel("sok")} ${t("cost")}</span><input type="number" step="0.01" min="0" id="ing_price_sok_${di}_${ii}" placeholder="${marketLabel("sok")} ${t("cost")}" value="${sokManualPrice !== null && sokManualPrice !== undefined ? sokManualPrice : ""}"></label><label class="market-price-field"><span>${marketLabel("migros")} ${t("cost")}</span><input type="number" step="0.01" min="0" id="ing_price_migros_${di}_${ii}" placeholder="${marketLabel("migros")} ${t("cost")}" value="${migrosManualPrice !== null && migrosManualPrice !== undefined ? migrosManualPrice : ""}"></label><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button>${marketButtons}<button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>${pickedSummary}`;
+      row.innerHTML = `<input type="text" id="ing_name_${di}_${ii}" placeholder="${t("ingredientName")}" value="${normalized.name}"><input type="text" id="ing_desc_${di}_${ii}" placeholder="${t("description")}" value="${normalized.description}"><input type="number" step="0.01" min="0.01" id="ing_qty_${di}_${ii}" placeholder="${t("need")}" value="${normalized.quantity}"><select id="ing_unit_${di}_${ii}">${renderUnitOptions(normalized.unit)}</select><span>${t("perPackage")}</span><input type="number" step="0.01" min="0.01" id="ing_pack_${di}_${ii}" placeholder="${t("packSize")}" value="${normalized.packageSize}"><select id="ing_pack_unit_${di}_${ii}">${renderUnitOptions(normalized.packageUnit)}</select><label class="market-price-field"><span>${marketLabel("sok")} ${t("cost")}</span><input type="number" step="0.01" min="0" id="ing_price_sok_${di}_${ii}" placeholder="${marketLabel("sok")} ${t("cost")}" value="${sokManualPrice !== null && sokManualPrice !== undefined ? sokManualPrice : ""}" onchange="autoSavePrice(${di},${ii},'sok',this.value)"></label><label class="market-price-field"><span>${marketLabel("migros")} ${t("cost")}</span><input type="number" step="0.01" min="0" id="ing_price_migros_${di}_${ii}" placeholder="${marketLabel("migros")} ${t("cost")}" value="${migrosManualPrice !== null && migrosManualPrice !== undefined ? migrosManualPrice : ""}" onchange="autoSavePrice(${di},${ii},'migros',this.value)"></label><button class="btn-pick" onclick="openPickModal(${di},${ii})">${t("pickFromMarket")}</button><button onclick="saveIngredient(${di},${ii})">${t("saveBtn")}</button>${marketButtons}<button class="btn-delete" onclick="removeIngredient(${di},${ii})">${t("deleteBtn")}</button>${pickedSummary}`;
       list.appendChild(row);
     });
   });
 }
+
+window.autoSavePrice = function (di, ii, market, value) {
+  const raw = String(value || "").trim();
+  const price = raw ? Number(raw) : null;
+  if (price !== null && (!Number.isFinite(price) || price < 0)) return;
+
+  const ing = normalizeIngredient(desserts[di]?.ingredients?.[ii]);
+  if (!ing.marketSelections[market]) {
+    ing.marketSelections[market] = {
+      market,
+      name: "",
+      price,
+      packageSize: ing.packageSize,
+      packageUnit: ing.packageUnit,
+    };
+  } else {
+    ing.marketSelections[market].price = price;
+  }
+  desserts[di].ingredients[ii] = ing;
+  saveLocal();
+};
 
 window.findCheapestForSelectedDessert = async function () {
   if (!SCRAPER_API_BASE) await detectServerPort();
