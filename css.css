@@ -22,8 +22,153 @@
     --radius-sm: 10px;
 }
 
-* {
-    box-sizing: border-box;
+/* Simplified Dessert Interface Styles */
+.dessert-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--panel);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line);
+    transition: all 0.3s ease;
+}
+
+.dessert-item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+    border-color: rgba(233, 120, 39, 0.3);
+}
+
+.dessert-image {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-md);
+    object-fit: cover;
+    border: 2px solid var(--line);
+}
+
+.dessert-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dessert-name {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.dessert-time {
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.dessert-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-start, .btn-reset {
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-start {
+    background: var(--orange);
+    color: white;
+}
+
+.btn-start:hover {
+    background: var(--orange-deep);
+    transform: scale(1.05);
+}
+
+.btn-reset {
+    background: var(--muted);
+    color: white;
+}
+
+.btn-reset:hover {
+    background: #5a4a3a;
+    transform: scale(1.05);
+}
+
+/* Market warning styles */
+.market-warning {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    margin-top: 16px;
+}
+
+.market-warning p {
+    margin: 4px 0;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.market-warning strong {
+    color: var(--orange);
+}
+
+/* Responsive market table */
+.market-table-wrap {
+    overflow-x: auto;
+    margin: 16px 0;
+}
+
+.market-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.market-table th,
+.market-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+}
+
+.market-table th {
+    background: var(--panel);
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.market-totals {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+}
+
+.market-totals p {
+    margin: 0;
+    font-weight: 600;
+}
+
+.best-market {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--success);
+    margin: 16px 0;
+}
+
+/* Row styling for compatibility */
+.row {
+    margin-bottom: 12px;
 }
 
 html {

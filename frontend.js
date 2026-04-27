@@ -400,6 +400,8 @@ function marketLabel(market) {
   const value = String(market || "").toLowerCase();
   if (value === "sok") return t("sokLabel");
   if (value === "migros") return t("migrosLabel");
+  if (value === "a101") return "A101";
+  if (value === "bim") return "BIM";
   if (value === "n/a") return t("unavailable");
   return market || t("unavailable");
 }
@@ -1284,6 +1286,7 @@ window.exportReportPDF = function () {
 let desserts = [
   {
     name: "Magnolia",
+    image: "https://images.unsplash.com/photo-1551024506-0bccd828d307?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1294,6 +1297,7 @@ let desserts = [
   },
   {
     name: "English Cake",
+    image: "https://images.unsplash.com/photo-1578985545062-69928f1d1d58?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1304,6 +1308,7 @@ let desserts = [
   },
   {
     name: "Cheese Cake",
+    image: "https://images.unsplash.com/photo-1565958011703-44f9829ba828?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1313,7 +1318,8 @@ let desserts = [
     ingredients: [],
   },
   {
-    name: "Tirimasu",
+    name: "Tiramisu",
+    image: "https://images.unsplash.com/photo-1571872673255-89e25313dfe7?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1324,6 +1330,7 @@ let desserts = [
   },
   {
     name: "Othmaliye",
+    image: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=150&h=150&fit=crop",
     days: 10,
     hours: 0,
     minutes: 0,
@@ -1334,6 +1341,7 @@ let desserts = [
   },
   {
     name: "Fondant",
+    image: "https://images.unsplash.com/photo-1558301367-02688e0a7100?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1344,6 +1352,7 @@ let desserts = [
   },
   {
     name: "Sweet Syrup",
+    image: "https://images.unsplash.com/photo-1586230849929-bd0a3b4c4c3e?w=150&h=150&fit=crop",
     days: 30,
     hours: 0,
     minutes: 0,
@@ -1354,6 +1363,7 @@ let desserts = [
   },
   {
     name: "Ashta",
+    image: "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=150&h=150&fit=crop",
     days: 10,
     hours: 0,
     minutes: 0,
@@ -1364,6 +1374,7 @@ let desserts = [
   },
   {
     name: "Cookies",
+    image: "https://images.unsplash.com/photo-1499636131164-378fa8ae9c5c?w=150&h=150&fit=crop",
     days: 5,
     hours: 0,
     minutes: 0,
@@ -1754,10 +1765,11 @@ window.switchTab = function (tabName) {
 };
 
 function render() {
-  const list = document.getElementById("list"),
-    expired = document.getElementById("expired");
+  const list = document.getElementById("list");
+  const expired = document.getElementById("expired");
   list.innerHTML = "";
   expired.innerHTML = "";
+
   const now = Date.now();
   desserts.forEach((d, i) => {
     let remaining = 0;
@@ -1767,16 +1779,32 @@ function render() {
         d.hours * 3600000 +
         d.minutes * 60000 -
         (now - d.startTime);
+
     if (d.startTime && remaining <= 0 && !d.finished) {
       d.finished = true;
-      const alarm = document.getElementById("alarm");
-      if (alarm) alarm.play().catch(() => {});
+      if (!d.notified) {
+        alert(`${t("timeFinished")} ${d.name}`);
+        document.getElementById("alarm").play();
+        d.notified = true;
+      }
       saveLocal();
     }
-    if (d.startTime && remaining <= 0) triggerDessertFinishedAlert(d);
+
     const div = document.createElement("div");
     div.className = "row";
-    div.innerHTML = `<span>${d.name}</span><button onclick="start(${i})">${t("startBtn")}</button><button onclick="reset(${i})">${t("resetBtn")}</button><span>${d.startTime ? formatTime(Math.max(0, remaining)) : ""}</span>`;
+    div.innerHTML = `
+      <div class="dessert-item">
+        <img src="${d.image || 'https://via.placeholder.com/80x80'}" alt="${d.name}" class="dessert-image">
+        <div class="dessert-info">
+          <h3 class="dessert-name">${d.name}</h3>
+          <div class="dessert-time">${d.startTime ? formatTime(Math.max(0, remaining)) : ""}</div>
+        </div>
+        <div class="dessert-actions">
+          <button onclick="start(${i})" class="btn-start">${t("startBtn")}</button>
+          <button onclick="reset(${i})" class="btn-reset">${t("resetBtn")}</button>
+        </div>
+      </div>
+    `;
     if (d.finished || (d.startTime && remaining <= 0)) expired.appendChild(div);
     else list.appendChild(div);
   });
@@ -3879,15 +3907,62 @@ function renderMarketResult(data) {
   const cheapest = data.cheapestMarket || "N/A";
   const cheapestTotal = Number(data.cheapestTotal || 0);
 
-  let html = `<div class="market-table-wrap"><table class="market-table"><thead><tr><th>${t("ingredient")}</th><th>${t("qty")}</th><th>${marketLabel("sok")} ${t("chosenItem")}</th><th>${marketLabel("sok")} ${t("unit")}</th><th>${marketLabel("sok")} ${t("cost")}</th><th>${marketLabel("migros")} ${t("chosenItem")}</th><th>${marketLabel("migros")} ${t("unit")}</th><th>${marketLabel("migros")} ${t("cost")}</th></tr></thead><tbody>`;
+  // Support for multiple markets: sok, migros, a101, bim
+  const markets = ['sok', 'migros', 'a101', 'bim'];
+  
+  // Create table header with all available markets
+  let headerRow = `<th>${t("ingredient")}</th><th>${t("qty")}</th>`;
+  markets.forEach(market => {
+    if (totals[market] !== undefined) {
+      headerRow += `<th>${marketLabel(market)} ${t("chosenItem")}</th><th>${marketLabel(market)} ${t("unit")}</th><th>${marketLabel(market)} ${t("cost")}</th>`;
+    }
+  });
+  
+  let html = `<div class="market-table-wrap"><table class="market-table"><thead><tr>${headerRow}</tr></thead><tbody>`;
 
   rows.forEach((row) => {
-    html += `<tr><td>${escapeText(row.ingredient)}</td><td>${escapeText(row.quantity)}</td><td>${escapeText(row.sok?.name || row.marketNames?.sok || t("unavailable"))}</td><td>${formatTryPrice(row.sok?.unitPrice)}</td><td>${formatTryPrice(row.sok?.cost)}</td><td>${escapeText(row.migros?.name || row.marketNames?.migros || t("unavailable"))}</td><td>${formatTryPrice(row.migros?.unitPrice)}</td><td>${formatTryPrice(row.migros?.cost)}</td></tr>`;
+    let rowHtml = `<td>${escapeText(row.ingredient)}</td><td>${escapeText(row.quantity)}</td>`;
+    
+    markets.forEach(market => {
+      if (totals[market] !== undefined) {
+        const marketData = row[market];
+        const itemName = marketData?.name || row.marketNames?.[market] || t("unavailable");
+        const unitPrice = formatTryPrice(marketData?.unitPrice);
+        const cost = formatTryPrice(marketData?.cost);
+        
+        rowHtml += `<td>${escapeText(itemName)}</td><td>${unitPrice}</td><td>${cost}</td>`;
+      }
+    });
+    
+    rowHtml += `</tr>`;
+    html += rowHtml;
   });
 
   html += `</tbody></table></div>`;
-  html += `<div class="market-totals"><p><strong>Total ${marketLabel("sok")}:</strong> ${formatTryPrice(totals.sok)}</p><p><strong>Total ${marketLabel("migros")}:</strong> ${formatTryPrice(totals.migros)}</p></div>`;
+  
+  // Add totals for all available markets
+  let totalsHtml = `<div class="market-totals">`;
+  markets.forEach(market => {
+    if (totals[market] !== undefined) {
+      totalsHtml += `<p><strong>Total ${marketLabel(market)}:</strong> ${formatTryPrice(totals[market])}</p>`;
+    }
+  });
+  totalsHtml += `</div>`;
+  html += totalsHtml;
+  
   html += `<p class="best-market">${t("cheapestMarket")}: ${escapeText(marketLabel(cheapest))} (${formatTryPrice(cheapestTotal)})</p>`;
+  
+  // Add warning for incomplete data
+  const availableMarkets = markets.filter(m => totals[m] !== undefined);
+  const missingMarkets = markets.filter(m => totals[m] === undefined);
+  
+  if (missingMarkets.length > 0) {
+    html += `<div class="market-warning">
+      <p><strong>Note:</strong> Some markets are not available: ${missingMarkets.map(m => marketLabel(m)).join(', ')}</p>
+      <p>This could be due to API limitations or temporary service issues.</p>
+    </div>`;
+  }
+  
   resultBox.innerHTML = html;
 }
 
